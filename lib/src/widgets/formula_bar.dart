@@ -27,6 +27,9 @@ class _FormulaBarState extends State<FormulaBar> {
   @override
   void didUpdateWidget(FormulaBar oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.selectedCell != oldWidget.selectedCell) {
+      _isEditing = false;
+    }
     if (!_isEditing) {
       _updateControllerText();
     }

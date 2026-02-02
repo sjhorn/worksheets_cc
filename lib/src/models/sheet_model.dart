@@ -1,25 +1,33 @@
 import 'package:worksheet/worksheet.dart';
+import 'package:worksheet_formula/worksheet_formula.dart';
 
 import '../constants.dart';
+import '../services/formula_worksheet_data.dart';
 
 class SheetModel {
   SheetModel({
     required this.name,
-    SparseWorksheetData? data,
+    SparseWorksheetData? rawData,
+    FormulaWorksheetData? formulaData,
     WorksheetController? controller,
     Map<int, double>? customColumnWidths,
     Map<int, double>? customRowHeights,
-  })  : data = data ??
+    FormulaEngine? formulaEngine,
+  })  : rawData = rawData ??
             SparseWorksheetData(
               rowCount: defaultRowCount,
               columnCount: defaultColumnCount,
             ),
         controller = controller ?? WorksheetController(),
         customColumnWidths = customColumnWidths ?? {},
-        customRowHeights = customRowHeights ?? {};
+        customRowHeights = customRowHeights ?? {} {
+    this.formulaData =
+        formulaData ?? FormulaWorksheetData(this.rawData, engine: formulaEngine);
+  }
 
   final String name;
-  final SparseWorksheetData data;
+  final SparseWorksheetData rawData;
+  late final FormulaWorksheetData formulaData;
   final WorksheetController controller;
   final Map<int, double> customColumnWidths;
   final Map<int, double> customRowHeights;
@@ -27,7 +35,8 @@ class SheetModel {
   SheetModel copyWithName(String newName) {
     return SheetModel(
       name: newName,
-      data: data,
+      rawData: rawData,
+      formulaData: formulaData,
       controller: controller,
       customColumnWidths: customColumnWidths,
       customRowHeights: customRowHeights,
@@ -36,6 +45,7 @@ class SheetModel {
 
   void dispose() {
     controller.dispose();
-    data.dispose();
+    formulaData.dispose();
+    rawData.dispose();
   }
 }

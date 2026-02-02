@@ -5,7 +5,6 @@ import 'package:worksheet/worksheet.dart';
 import '../constants.dart';
 import '../models/sheet_model.dart';
 import '../models/workbook_model.dart';
-import '../services/formula_service.dart';
 import '../services/persistence_service.dart';
 import 'formula_bar.dart';
 import 'formatting_toolbar.dart';
@@ -16,12 +15,10 @@ class SpreadsheetPage extends StatefulWidget {
   const SpreadsheetPage({
     super.key,
     required this.workbook,
-    required this.formulaService,
     required this.persistenceService,
   });
 
   final WorkbookModel workbook;
-  final FormulaService formulaService;
   final WebPersistenceService persistenceService;
 
   @override
@@ -34,25 +31,69 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   CellStyle? _selectedCellStyle;
   CellFormat? _selectedCellFormat;
 
+  late EditController _editController;
+  Rect? _editingCellBounds;
+  FocusNode? _worksheetFocusNode;
+
   WorkbookModel get _workbook => widget.workbook;
-  FormulaService get _formulaService => widget.formulaService;
 
   @override
   void initState() {
     super.initState();
+    _editController = EditController();
     _workbook.addListener(_onWorkbookChanged);
+    _workbook.activeSheet.controller.addListener(_onControllerChanged);
+    _captureWorksheetFocusNode();
   }
 
   @override
   void dispose() {
+    _workbook.activeSheet.controller.removeListener(_onControllerChanged);
     _workbook.removeListener(_onWorkbookChanged);
+    _editController.dispose();
     super.dispose();
   }
 
+  /// After a build frame, capture the Worksheet's internal FocusNode.
+  /// The Worksheet uses Focus(autofocus: true), so after the first frame
+  /// it becomes the primaryFocus. We save the reference so we can
+  /// re-focus it after the formula bar steals focus.
+  void _captureWorksheetFocusNode([int retries = 20]) {
+    if (retries <= 0 || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final primary = FocusManager.instance.primaryFocus;
+      if (primary != null && primary is! FocusScopeNode) {
+        _worksheetFocusNode = primary;
+      } else {
+        _captureWorksheetFocusNode(retries - 1);
+      }
+    });
+  }
+
   void _onWorkbookChanged() {
+    // Re-attach controller listener when active sheet changes
+    for (final sheet in _workbook.sheets) {
+      sheet.controller.removeListener(_onControllerChanged);
+    }
+    _workbook.activeSheet.controller.addListener(_onControllerChanged);
+
+    // Re-capture the Worksheet's FocusNode after the new sheet builds
+    _captureWorksheetFocusNode();
+
     setState(() {
       _updateSelectedCellInfo();
     });
+  }
+
+  void _onControllerChanged() {
+    final focusCell = _workbook.activeSheet.controller.focusCell;
+    if (focusCell != _selectedCell) {
+      setState(() {
+        _selectedCell = focusCell;
+        _updateSelectedCellInfo();
+      });
+    }
   }
 
   void _updateSelectedCellInfo() {
@@ -63,84 +104,91 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       return;
     }
 
-    final data = _workbook.activeSheet.data;
-    _selectedCellValue = data.getCell(_selectedCell!);
-    _selectedCellStyle = data.getStyle(_selectedCell!);
-    _selectedCellFormat = data.getFormat(_selectedCell!);
+    final sheet = _workbook.activeSheet;
+    // Show raw value in formula bar (so formulas display as "=SUM(...)")
+    _selectedCellValue = sheet.rawData.getCell(_selectedCell!);
+    _selectedCellStyle = sheet.rawData.getStyle(_selectedCell!);
+    _selectedCellFormat = sheet.rawData.getFormat(_selectedCell!);
   }
 
   void _onCellTap(CellCoordinate cell) {
+    // If editing a different cell, commit the current edit first
+    if (_editController.isEditing && _editController.editingCell != cell) {
+      _editController.commitEdit(onCommit: _onCommitEdit);
+    }
+
+    // Return focus to the Worksheet's internal Focus node so arrow keys work.
+    // Deferred to post-frame because on Flutter web, unfocusing a TextField
+    // triggers browser-level text input cleanup that can override a
+    // synchronous requestFocus() call.
+    if (_worksheetFocusNode != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _worksheetFocusNode?.requestFocus();
+      });
+    }
+
     setState(() {
+      _editingCellBounds = null;
       _selectedCell = cell;
       _updateSelectedCellInfo();
     });
   }
 
   void _onEditCell(CellCoordinate cell) {
-    _showCellEditor(cell);
+    final sheet = _workbook.activeSheet;
+    final rawValue = sheet.rawData.getCell(cell);
+
+    final bounds = sheet.controller.getCellScreenBounds(cell);
+    if (bounds == null) return;
+
+    _editController.startEdit(
+      cell: cell,
+      currentValue: rawValue,
+      trigger: EditTrigger.doubleTap,
+    );
+
+    setState(() {
+      _selectedCell = cell;
+      _editingCellBounds = bounds;
+      _updateSelectedCellInfo();
+    });
   }
 
-  void _showCellEditor(CellCoordinate cell) {
-    final data = _workbook.activeSheet.data;
-    final currentValue = data.getCell(cell);
+  void _onCommitEdit(CellCoordinate cell, CellValue? value) {
+    final sheet = _workbook.activeSheet;
+    sheet.formulaData.setCell(cell, value);
+    widget.persistenceService.scheduleSave(_workbook);
 
-    String initialText;
-    if (currentValue != null && currentValue.isFormula) {
-      initialText = currentValue.rawValue as String;
-    } else if (currentValue != null) {
-      initialText = currentValue.displayValue;
-    } else {
-      initialText = '';
-    }
+    setState(() {
+      _editingCellBounds = null;
+      _updateSelectedCellInfo();
+    });
+  }
 
-    final controller = TextEditingController(text: initialText);
-
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Edit ${cell.toNotation()}'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          onSubmitted: (value) {
-            _setCellValue(cell, value);
-            Navigator.pop(dialogContext);
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              _setCellValue(cell, controller.text);
-              Navigator.pop(dialogContext);
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
+  void _onCancelEdit() {
+    setState(() {
+      _editingCellBounds = null;
+    });
   }
 
   void _setCellValue(CellCoordinate cell, String text) {
-    final data = _workbook.activeSheet.data;
+    final sheet = _workbook.activeSheet;
 
+    CellValue? value;
     if (text.isEmpty) {
-      data.setCell(cell, null);
+      value = null;
     } else if (text.startsWith('=')) {
-      data.setCell(cell, CellValue.formula(text));
+      value = CellValue.formula(text);
     } else {
       final number = num.tryParse(text);
       if (number != null) {
-        data.setCell(cell, CellValue.number(number));
+        value = CellValue.number(number);
       } else {
-        data.setCell(cell, CellValue.text(text));
+        value = CellValue.text(text);
       }
     }
 
-    _formulaService.onCellChanged(cell, data);
+    sheet.formulaData.setCell(cell, value);
     widget.persistenceService.scheduleSave(_workbook);
 
     setState(() {
@@ -157,9 +205,9 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   void _onStyleChanged(CellStyle style) {
     if (_selectedCell == null) return;
 
-    final data = _workbook.activeSheet.data;
-    final existing = data.getStyle(_selectedCell!) ?? const CellStyle();
-    data.setStyle(_selectedCell!, existing.merge(style));
+    final sheet = _workbook.activeSheet;
+    final existing = sheet.rawData.getStyle(_selectedCell!) ?? const CellStyle();
+    sheet.rawData.setStyle(_selectedCell!, existing.merge(style));
     widget.persistenceService.scheduleSave(_workbook);
 
     setState(() {
@@ -170,8 +218,8 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   void _onFormatChanged(CellFormat format) {
     if (_selectedCell == null) return;
 
-    final data = _workbook.activeSheet.data;
-    data.setFormat(_selectedCell!, format);
+    final sheet = _workbook.activeSheet;
+    sheet.rawData.setFormat(_selectedCell!, format);
     widget.persistenceService.scheduleSave(_workbook);
 
     setState(() {
@@ -201,9 +249,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
           const SingleActivator(LogicalKeyboardKey.keyS, control: true):
               () => widget.persistenceService.save(_workbook),
         },
-        child: Focus(
-          autofocus: true,
-          child: Column(
+        child: Column(
             children: [
               _buildMenuBar(),
               FormulaBar(
@@ -218,29 +264,39 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
                 onFormatChanged: _onFormatChanged,
               ),
               Expanded(
-                child: WorksheetTheme(
-                  data: const WorksheetThemeData(),
-                  child: Worksheet(
-                    key: ValueKey(sheet.name),
-                    data: sheet.data,
-                    controller: sheet.controller,
-                    rowCount: defaultRowCount,
-                    columnCount: defaultColumnCount,
-                    customColumnWidths: sheet.customColumnWidths,
-                    customRowHeights: sheet.customRowHeights,
-                    onCellTap: _onCellTap,
-                    onEditCell: _onEditCell,
-                    onResizeColumn: _onResizeColumn,
-                    onResizeRow: _onResizeRow,
-                  ),
+                child: Stack(
+                  children: [
+                    WorksheetTheme(
+                      data: const WorksheetThemeData(),
+                      child: Worksheet(
+                        key: ValueKey(sheet.name),
+                        data: sheet.formulaData,
+                        controller: sheet.controller,
+                        rowCount: defaultRowCount,
+                        columnCount: defaultColumnCount,
+                        customColumnWidths: sheet.customColumnWidths,
+                        customRowHeights: sheet.customRowHeights,
+                        onCellTap: _onCellTap,
+                        onEditCell: _onEditCell,
+                        onResizeColumn: _onResizeColumn,
+                        onResizeRow: _onResizeRow,
+                      ),
+                    ),
+                    if (_editController.isEditing && _editingCellBounds != null)
+                      CellEditorOverlay(
+                        editController: _editController,
+                        cellBounds: _editingCellBounds!,
+                        onCommit: _onCommitEdit,
+                        onCancel: _onCancelEdit,
+                      ),
+                  ],
                 ),
               ),
               _buildStatusBar(sheet),
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildMenuBar() {

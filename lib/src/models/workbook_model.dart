@@ -1,13 +1,19 @@
 import 'package:flutter/foundation.dart';
+import 'package:worksheet_formula/worksheet_formula.dart';
 
 import '../constants.dart';
 import 'sheet_model.dart';
 
 class WorkbookModel extends ChangeNotifier {
-  WorkbookModel() {
-    _sheets.add(SheetModel(name: defaultSheetName));
+  WorkbookModel({FormulaEngine? formulaEngine})
+      : _formulaEngine = formulaEngine ?? FormulaEngine() {
+    _sheets.add(SheetModel(
+      name: defaultSheetName,
+      formulaEngine: _formulaEngine,
+    ));
   }
 
+  final FormulaEngine _formulaEngine;
   final List<SheetModel> _sheets = [];
   int _activeSheetIndex = 0;
 
@@ -25,7 +31,10 @@ class WorkbookModel extends ChangeNotifier {
 
   void addSheet({String? name}) {
     final sheetName = name ?? 'Sheet${_sheets.length + 1}';
-    _sheets.add(SheetModel(name: sheetName));
+    _sheets.add(SheetModel(
+      name: sheetName,
+      formulaEngine: _formulaEngine,
+    ));
     _activeSheetIndex = _sheets.length - 1;
     notifyListeners();
   }

@@ -88,8 +88,8 @@ void main() {
     test('creates with default data and controller', () {
       final sheet = SheetModel(name: 'Test');
       expect(sheet.name, 'Test');
-      expect(sheet.data.rowCount, 1000);
-      expect(sheet.data.columnCount, 26);
+      expect(sheet.rawData.rowCount, 1000);
+      expect(sheet.rawData.columnCount, 26);
       expect(sheet.customColumnWidths, isEmpty);
       expect(sheet.customRowHeights, isEmpty);
       sheet.dispose();
@@ -99,7 +99,8 @@ void main() {
       final sheet = SheetModel(name: 'Original');
       final copy = sheet.copyWithName('Copy');
       expect(copy.name, 'Copy');
-      expect(identical(copy.data, sheet.data), true);
+      expect(identical(copy.rawData, sheet.rawData), true);
+      expect(identical(copy.formulaData, sheet.formulaData), true);
       expect(identical(copy.controller, sheet.controller), true);
       // Don't dispose both since they share data/controller
     });

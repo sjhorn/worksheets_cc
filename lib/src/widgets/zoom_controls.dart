@@ -29,15 +29,28 @@ class ZoomControls extends StatelessWidget {
           tooltip: 'Zoom out',
         ),
         SizedBox(
-          width: 60,
-          child: Slider(
-            value: controller.zoom,
-            min: 0.1,
-            max: 4.0,
-            onChanged: (value) {
-              controller.setZoom(value);
-              onZoomChanged();
-            },
+          width: 90,
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+              trackHeight: 2,
+              activeTrackColor: Theme.of(context).colorScheme.primary,
+              thumbColor: Theme.of(context).colorScheme.primary,
+              inactiveTrackColor:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
+              overlayColor:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+            ),
+            child: Slider(
+              value: controller.zoom,
+              min: 0.1,
+              max: 4.0,
+              onChanged: (value) {
+                controller.setZoom(value);
+                onZoomChanged();
+              },
+            ),
           ),
         ),
         SizedBox(

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'src/constants.dart';
 import 'src/models/workbook_model.dart';
-import 'src/services/formula_service.dart';
 import 'src/services/persistence_service.dart';
 import 'src/widgets/spreadsheet_page.dart';
 
@@ -19,7 +18,6 @@ class WorksheetsApp extends StatefulWidget {
 
 class _WorksheetsAppState extends State<WorksheetsApp> {
   late final WorkbookModel _workbook;
-  late final FormulaService _formulaService;
   late final WebPersistenceService _persistenceService;
   bool _isLoading = true;
 
@@ -27,7 +25,6 @@ class _WorksheetsAppState extends State<WorksheetsApp> {
   void initState() {
     super.initState();
     _workbook = WorkbookModel();
-    _formulaService = FormulaService();
     _persistenceService = WebPersistenceService();
     _loadWorkbook();
   }
@@ -59,7 +56,6 @@ class _WorksheetsAppState extends State<WorksheetsApp> {
             )
           : SpreadsheetPage(
               workbook: _workbook,
-              formulaService: _formulaService,
               persistenceService: _persistenceService,
             ),
     );
