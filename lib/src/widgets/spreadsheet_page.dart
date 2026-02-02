@@ -252,6 +252,16 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       ),
       child: Row(
         children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Image.asset(
+              'assets/worksheet.png',
+              height: 24,
+              width: 24,
+              filterQuality: FilterQuality.medium,
+            ),
+          ),
+          const SizedBox(width: 6),
           const Text(
             appTitle,
             style: TextStyle(
