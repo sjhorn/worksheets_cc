@@ -4,7 +4,7 @@
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FFFFFF",
-    "theme_color": "#217346",
+    "theme_color": "#3182CE",
     "description": "A spreadsheet in your browser",
     "orientation": "any",
     "prefer_related_applications": false,
