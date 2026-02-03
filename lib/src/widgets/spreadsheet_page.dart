@@ -8,6 +8,7 @@ import '../constants.dart';
 import '../models/sheet_model.dart';
 import '../models/workbook_model.dart';
 import '../services/persistence_service.dart';
+import '../services/undo_manager.dart';
 import 'formula_bar.dart';
 import 'formatting_toolbar.dart';
 import 'sheet_tabs.dart';
@@ -176,11 +177,13 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     final range = sheet.controller.selectedRange;
 
     if (range != null) {
-      for (final coord in range.cells) {
-        final existing =
-            sheet.rawData.getStyle(coord) ?? const CellStyle();
-        sheet.rawData.setStyle(coord, existing.merge(style));
-      }
+      sheet.rawData.batchUpdate((batch) {
+        for (final coord in range.cells) {
+          final existing =
+              sheet.rawData.getStyle(coord) ?? const CellStyle();
+          batch.setStyle(coord, existing.merge(style));
+        }
+      });
     } else {
       final existing =
           sheet.rawData.getStyle(_selectedCell!) ?? const CellStyle();
@@ -199,9 +202,11 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     final range = sheet.controller.selectedRange;
 
     if (range != null) {
-      for (final coord in range.cells) {
-        sheet.rawData.setFormat(coord, format);
-      }
+      sheet.rawData.batchUpdate((batch) {
+        for (final coord in range.cells) {
+          batch.setFormat(coord, format);
+        }
+      });
     } else {
       sheet.rawData.setFormat(_selectedCell!, format);
     }
@@ -234,16 +239,56 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   }
 
   void _onResizeColumn(int column, double newWidth) {
-    _workbook.activeSheet.customColumnWidths[column] = newWidth;
+    final sheet = _workbook.activeSheet;
+    final oldWidth = sheet.customColumnWidths[column];
+    sheet.customColumnWidths[column] = newWidth;
+    // Extract column letter from notation (e.g. "A1" → "A")
+    final colLetter =
+        CellCoordinate(0, column).toNotation().replaceAll(RegExp(r'\d+$'), '');
+    sheet.undoManager.push(ResizeColumnAction(
+      columnWidths: sheet.customColumnWidths,
+      column: column,
+      oldWidth: oldWidth,
+      newWidth: newWidth,
+      description: 'Resize Column $colLetter',
+    ));
     widget.persistenceService.scheduleSave(_workbook);
     setState(() {});
   }
 
   void _onResizeRow(int row, double newHeight) {
-    _workbook.activeSheet.customRowHeights[row] = newHeight;
+    final sheet = _workbook.activeSheet;
+    final oldHeight = sheet.customRowHeights[row];
+    sheet.customRowHeights[row] = newHeight;
+    sheet.undoManager.push(ResizeRowAction(
+      rowHeights: sheet.customRowHeights,
+      row: row,
+      oldHeight: oldHeight,
+      newHeight: newHeight,
+      description: 'Resize Row ${row + 1}',
+    ));
     widget.persistenceService.scheduleSave(_workbook);
     setState(() {});
   }
+
+  void _undoN(int n) {
+    final sheet = _workbook.activeSheet;
+    sheet.undoManager.undoN(n);
+    widget.persistenceService.scheduleSave(_workbook);
+    setState(_updateSelectedCellInfo);
+  }
+
+  void _redoN(int n) {
+    final sheet = _workbook.activeSheet;
+    sheet.undoManager.redoN(n);
+    widget.persistenceService.scheduleSave(_workbook);
+    setState(_updateSelectedCellInfo);
+  }
+
+  void _undo() => _undoN(1);
+
+  void _redo() => _redoN(1);
+
 
   @override
   Widget build(BuildContext context) {
@@ -262,6 +307,14 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
               _toggleItalic,
           const SingleActivator(LogicalKeyboardKey.keyI, meta: true):
               _toggleItalic,
+          const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
+              _undo,
+          const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
+              _undo,
+          const SingleActivator(LogicalKeyboardKey.keyZ, control: true,
+              shift: true): _redo,
+          const SingleActivator(LogicalKeyboardKey.keyZ, meta: true,
+              shift: true): _redo,
         },
         child: Column(
             children: [
@@ -276,6 +329,10 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
                 currentFormat: _selectedCellFormat,
                 onStyleChanged: _onStyleChanged,
                 onFormatChanged: _onFormatChanged,
+                undoDescriptions: sheet.undoManager.undoDescriptions,
+                redoDescriptions: sheet.undoManager.redoDescriptions,
+                onUndoN: _undoN,
+                onRedoN: _redoN,
               ),
               Expanded(
                 child: WorksheetTheme(

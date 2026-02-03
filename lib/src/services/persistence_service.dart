@@ -132,7 +132,7 @@ class WebPersistenceService implements PersistenceService {
   Map<String, dynamic> _serializeSheet(SheetModel sheet) {
     final cells = <String, dynamic>{};
 
-    for (final entry in sheet.rawData.cells.entries) {
+    for (final entry in sheet.sparseData.cells.entries) {
       final coord = entry.key;
       final cell = entry.value;
       final key = coord.toNotation();
@@ -225,7 +225,7 @@ class WebPersistenceService implements PersistenceService {
     for (final entry in cells.entries) {
       final coord = CellCoordinate.fromNotation(entry.key);
       final cellJson = entry.value as Map<String, dynamic>;
-      _deserializeCell(cellJson, coord, sheet.rawData);
+      _deserializeCell(cellJson, coord, sheet.sparseData);
     }
 
     final colWidths = json['columnWidths'] as Map<String, dynamic>? ?? {};
@@ -239,6 +239,9 @@ class WebPersistenceService implements PersistenceService {
       sheet.customRowHeights[int.parse(entry.key)] =
           (entry.value as num).toDouble();
     }
+
+    // Clear undo history — deserialized data shouldn't be undoable
+    sheet.undoManager.clear();
   }
 
   void _deserializeCell(

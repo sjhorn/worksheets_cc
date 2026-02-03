@@ -3,30 +3,39 @@ import 'package:worksheet_formula/worksheet_formula.dart';
 
 import '../constants.dart';
 import '../services/formula_worksheet_data.dart';
+import '../services/undo_manager.dart';
+import '../services/undoable_worksheet_data.dart';
 
 class SheetModel {
   SheetModel({
     required this.name,
-    SparseWorksheetData? rawData,
+    SparseWorksheetData? sparseData,
+    UndoManager? undoManager,
+    UndoableWorksheetData? rawData,
     FormulaWorksheetData? formulaData,
     WorksheetController? controller,
     Map<int, double>? customColumnWidths,
     Map<int, double>? customRowHeights,
     FormulaEngine? formulaEngine,
-  })  : rawData = rawData ??
+  })  : sparseData = sparseData ??
             SparseWorksheetData(
               rowCount: defaultRowCount,
               columnCount: defaultColumnCount,
             ),
+        undoManager = undoManager ?? UndoManager(),
         controller = controller ?? WorksheetController(),
         customColumnWidths = customColumnWidths ?? {},
         customRowHeights = customRowHeights ?? {} {
+    this.rawData =
+        rawData ?? UndoableWorksheetData(this.sparseData, this.undoManager);
     this.formulaData =
         formulaData ?? FormulaWorksheetData(this.rawData, engine: formulaEngine);
   }
 
   final String name;
-  final SparseWorksheetData rawData;
+  final SparseWorksheetData sparseData;
+  final UndoManager undoManager;
+  late final UndoableWorksheetData rawData;
   late final FormulaWorksheetData formulaData;
   final WorksheetController controller;
   final Map<int, double> customColumnWidths;
@@ -35,6 +44,8 @@ class SheetModel {
   SheetModel copyWithName(String newName) {
     return SheetModel(
       name: newName,
+      sparseData: sparseData,
+      undoManager: undoManager,
       rawData: rawData,
       formulaData: formulaData,
       controller: controller,
@@ -47,5 +58,6 @@ class SheetModel {
     controller.dispose();
     formulaData.dispose();
     rawData.dispose();
+    sparseData.dispose();
   }
 }

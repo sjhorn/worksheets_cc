@@ -10,12 +10,20 @@ class FormattingToolbar extends StatelessWidget {
     required this.currentFormat,
     required this.onStyleChanged,
     required this.onFormatChanged,
+    required this.undoDescriptions,
+    required this.redoDescriptions,
+    required this.onUndoN,
+    required this.onRedoN,
   });
 
   final CellStyle? currentStyle;
   final CellFormat? currentFormat;
   final ValueChanged<CellStyle> onStyleChanged;
   final ValueChanged<CellFormat> onFormatChanged;
+  final List<String> undoDescriptions;
+  final List<String> redoDescriptions;
+  final ValueChanged<int> onUndoN;
+  final ValueChanged<int> onRedoN;
 
   @override
   Widget build(BuildContext context) {
@@ -30,6 +38,17 @@ class FormattingToolbar extends StatelessWidget {
       ),
       child: Row(
         children: [
+          _UndoRedoComboButton(
+            icon: Icons.undo,
+            descriptions: undoDescriptions,
+            onAction: onUndoN,
+          ),
+          _UndoRedoComboButton(
+            icon: Icons.redo,
+            descriptions: redoDescriptions,
+            onAction: onRedoN,
+          ),
+          const VerticalDivider(width: 16, indent: 8, endIndent: 8),
           _ToolbarButton(
             icon: Icons.format_bold,
             isActive: style.fontWeight == FontWeight.bold,
@@ -124,6 +143,71 @@ class _ToolbarButton extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
         ),
       ),
+    );
+  }
+}
+
+class _UndoRedoComboButton extends StatelessWidget {
+  const _UndoRedoComboButton({
+    required this.icon,
+    required this.descriptions,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final List<String> descriptions;
+  final ValueChanged<int> onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = descriptions.isNotEmpty;
+    final iconColor = enabled ? null : Colors.grey.shade400;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 28,
+          height: 28,
+          child: IconButton(
+            icon: Icon(icon, size: 16, color: iconColor),
+            padding: EdgeInsets.zero,
+            onPressed: enabled ? () => onAction(1) : null,
+            style: IconButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 16,
+          height: 28,
+          child: PopupMenuButton<int>(
+            enabled: enabled,
+            padding: EdgeInsets.zero,
+            tooltip: '',
+            onSelected: onAction,
+            offset: const Offset(0, 28),
+            itemBuilder: (_) => [
+              for (var i = 0; i < descriptions.length; i++)
+                PopupMenuItem<int>(
+                  value: i + 1,
+                  height: 32,
+                  child: Text(
+                    descriptions[i],
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+            ],
+            child: Icon(
+              Icons.arrow_drop_down,
+              size: 14,
+              color: iconColor,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
