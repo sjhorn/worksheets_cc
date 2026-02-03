@@ -19,6 +19,9 @@ class WorksheetEvaluationContext implements EvaluationContext {
   @override
   bool get isCancelled => false;
 
+  @override
+  FormulaValue? getVariable(String name) => null;
+
   /// Cells currently being evaluated — used to detect circular references.
   final Set<A1> _evaluating;
 

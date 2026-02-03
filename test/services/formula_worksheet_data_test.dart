@@ -74,6 +74,29 @@ void main() {
       expect(result.asDouble, 6);
     });
 
+    test('evaluates LAMBDA function', () {
+      rawData.setCell(
+        const CellCoordinate(0, 0),
+        const CellValue.formula('=LAMBDA(x, x+1)(5)'),
+      );
+      final result = formulaData.getCell(const CellCoordinate(0, 0));
+      expect(result, isNotNull);
+      expect(result!.isNumber, true);
+      expect(result.asDouble, 6);
+    });
+
+    test('handles FunctionValue from unapplied LAMBDA', () {
+      // An unapplied LAMBDA (no call args) returns a FunctionValue,
+      // which should be converted to text rather than crashing.
+      rawData.setCell(
+        const CellCoordinate(0, 0),
+        const CellValue.formula('=LAMBDA(x, x+1)'),
+      );
+      final result = formulaData.getCell(const CellCoordinate(0, 0));
+      expect(result, isNotNull);
+      expect(result!.isText, true);
+    });
+
     test('returns error for invalid formula', () {
       rawData.setCell(
           const CellCoordinate(0, 0), const CellValue.formula('=INVALID('));

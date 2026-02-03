@@ -117,6 +117,8 @@ class FormulaWorksheetData implements WorksheetData {
       ErrorValue(error: final e) => CellValue.error(e.code),
       EmptyValue() => null,
       RangeValue() => CellValue.text(fv.toText()),
+      FunctionValue() => CellValue.text(fv.toText()),
+      OmittedValue() => null,
     };
   }
 
