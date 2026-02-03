@@ -173,8 +173,19 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     if (_selectedCell == null) return;
 
     final sheet = _workbook.activeSheet;
-    final existing = sheet.rawData.getStyle(_selectedCell!) ?? const CellStyle();
-    sheet.rawData.setStyle(_selectedCell!, existing.merge(style));
+    final range = sheet.controller.selectedRange;
+
+    if (range != null) {
+      for (final coord in range.cells) {
+        final existing =
+            sheet.rawData.getStyle(coord) ?? const CellStyle();
+        sheet.rawData.setStyle(coord, existing.merge(style));
+      }
+    } else {
+      final existing =
+          sheet.rawData.getStyle(_selectedCell!) ?? const CellStyle();
+      sheet.rawData.setStyle(_selectedCell!, existing.merge(style));
+    }
 
     setState(() {
       _updateSelectedCellInfo();
@@ -185,11 +196,41 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     if (_selectedCell == null) return;
 
     final sheet = _workbook.activeSheet;
-    sheet.rawData.setFormat(_selectedCell!, format);
+    final range = sheet.controller.selectedRange;
+
+    if (range != null) {
+      for (final coord in range.cells) {
+        sheet.rawData.setFormat(coord, format);
+      }
+    } else {
+      sheet.rawData.setFormat(_selectedCell!, format);
+    }
 
     setState(() {
       _updateSelectedCellInfo();
     });
+  }
+
+  void _toggleBold() {
+    if (_selectedCell == null) return;
+    final sheet = _workbook.activeSheet;
+    final existing =
+        sheet.rawData.getStyle(_selectedCell!) ?? const CellStyle();
+    final newWeight = existing.fontWeight == FontWeight.bold
+        ? FontWeight.normal
+        : FontWeight.bold;
+    _onStyleChanged(CellStyle(fontWeight: newWeight));
+  }
+
+  void _toggleItalic() {
+    if (_selectedCell == null) return;
+    final sheet = _workbook.activeSheet;
+    final existing =
+        sheet.rawData.getStyle(_selectedCell!) ?? const CellStyle();
+    final newStyle = existing.fontStyle == FontStyle.italic
+        ? FontStyle.normal
+        : FontStyle.italic;
+    _onStyleChanged(CellStyle(fontStyle: newStyle));
   }
 
   void _onResizeColumn(int column, double newWidth) {
@@ -213,6 +254,14 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
         bindings: {
           const SingleActivator(LogicalKeyboardKey.keyS, control: true):
               () => widget.persistenceService.save(_workbook),
+          const SingleActivator(LogicalKeyboardKey.keyB, control: true):
+              _toggleBold,
+          const SingleActivator(LogicalKeyboardKey.keyB, meta: true):
+              _toggleBold,
+          const SingleActivator(LogicalKeyboardKey.keyI, control: true):
+              _toggleItalic,
+          const SingleActivator(LogicalKeyboardKey.keyI, meta: true):
+              _toggleItalic,
         },
         child: Column(
             children: [
