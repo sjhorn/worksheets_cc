@@ -15,10 +15,7 @@ class SheetTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 32,
-      decoration: const BoxDecoration(
-        color: headerBackground,
-        border: Border(top: BorderSide(color: toolbarBorder)),
-      ),
+      color: headerBackground,
       child: Row(
         children: [
           SizedBox(

@@ -54,10 +54,14 @@ CellFormat _detectSystemDateFormat() {
       return CellFormat.dateIso; // YMD
     } else if (parts[0] == '15') {
       return CellFormat(
-          type: CellFormatType.date, formatCode: 'd${sep}m${sep}yyyy'); // DMY
+        type: CellFormatType.date,
+        formatCode: 'd${sep}m${sep}yyyy',
+      ); // DMY
     } else {
       return CellFormat(
-          type: CellFormatType.date, formatCode: 'm${sep}d${sep}yyyy'); // MDY
+        type: CellFormatType.date,
+        formatCode: 'm${sep}d${sep}yyyy',
+      ); // MDY
     }
   } catch (_) {
     return CellFormat.dateIso;
@@ -97,8 +101,9 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     _editController = EditController();
     _workbook.addListener(_onWorkbookChanged);
     _workbook.activeSheet.controller.addListener(_onControllerChanged);
-    _dataChangeSub =
-        _workbook.activeSheet.formulaData.changes.listen(_onDataChange);
+    _dataChangeSub = _workbook.activeSheet.formulaData.changes.listen(
+      _onDataChange,
+    );
     _captureWorksheetFocusNode();
   }
 
@@ -137,8 +142,9 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
     // Re-subscribe to data changes for the new active sheet
     _dataChangeSub?.cancel();
-    _dataChangeSub =
-        _workbook.activeSheet.formulaData.changes.listen(_onDataChange);
+    _dataChangeSub = _workbook.activeSheet.formulaData.changes.listen(
+      _onDataChange,
+    );
 
     // Re-capture the Worksheet's FocusNode after the new sheet builds
     _captureWorksheetFocusNode();
@@ -221,8 +227,9 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
     final value = sheet.rawData.getCell(cell);
     final alignment = _defaultAlignmentFor(value);
-    final style =
-        (currentStyle ?? const CellStyle()).copyWith(textAlignment: alignment);
+    final style = (currentStyle ?? const CellStyle()).copyWith(
+      textAlignment: alignment,
+    );
     sheet.sparseData.setStyle(cell, style);
   }
 
@@ -266,8 +273,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     if (range != null) {
       sheet.rawData.batchUpdate((batch) {
         for (final coord in range.cells) {
-          final existing =
-              sheet.rawData.getStyle(coord) ?? const CellStyle();
+          final existing = sheet.rawData.getStyle(coord) ?? const CellStyle();
           batch.setStyle(coord, existing.merge(style));
         }
       });
@@ -330,15 +336,19 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     final oldWidth = sheet.customColumnWidths[column];
     sheet.customColumnWidths[column] = newWidth;
     // Extract column letter from notation (e.g. "A1" → "A")
-    final colLetter =
-        CellCoordinate(0, column).toNotation().replaceAll(RegExp(r'\d+$'), '');
-    sheet.undoManager.push(ResizeColumnAction(
-      columnWidths: sheet.customColumnWidths,
-      column: column,
-      oldWidth: oldWidth,
-      newWidth: newWidth,
-      description: 'Resize Column $colLetter',
-    ));
+    final colLetter = CellCoordinate(
+      0,
+      column,
+    ).toNotation().replaceAll(RegExp(r'\d+$'), '');
+    sheet.undoManager.push(
+      ResizeColumnAction(
+        columnWidths: sheet.customColumnWidths,
+        column: column,
+        oldWidth: oldWidth,
+        newWidth: newWidth,
+        description: 'Resize Column $colLetter',
+      ),
+    );
     widget.persistenceService.scheduleSave(_workbook);
     setState(() {});
   }
@@ -347,13 +357,15 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     final sheet = _workbook.activeSheet;
     final oldHeight = sheet.customRowHeights[row];
     sheet.customRowHeights[row] = newHeight;
-    sheet.undoManager.push(ResizeRowAction(
-      rowHeights: sheet.customRowHeights,
-      row: row,
-      oldHeight: oldHeight,
-      newHeight: newHeight,
-      description: 'Resize Row ${row + 1}',
-    ));
+    sheet.undoManager.push(
+      ResizeRowAction(
+        rowHeights: sheet.customRowHeights,
+        row: row,
+        oldHeight: oldHeight,
+        newHeight: newHeight,
+        description: 'Resize Row ${row + 1}',
+      ),
+    );
     widget.persistenceService.scheduleSave(_workbook);
     setState(() {});
   }
@@ -376,7 +388,6 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
   void _redo() => _redoN(1);
 
-
   @override
   Widget build(BuildContext context) {
     final sheet = _workbook.activeSheet;
@@ -384,8 +395,8 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     return Scaffold(
       body: CallbackShortcuts(
         bindings: {
-          const SingleActivator(LogicalKeyboardKey.keyS, control: true):
-              () => widget.persistenceService.save(_workbook),
+          const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
+              widget.persistenceService.save(_workbook),
           const SingleActivator(LogicalKeyboardKey.keyB, control: true):
               _toggleBold,
           const SingleActivator(LogicalKeyboardKey.keyB, meta: true):
@@ -394,66 +405,68 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
               _toggleItalic,
           const SingleActivator(LogicalKeyboardKey.keyI, meta: true):
               _toggleItalic,
-          const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
-              _undo,
-          const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
-              _undo,
-          const SingleActivator(LogicalKeyboardKey.keyZ, control: true,
-              shift: true): _redo,
-          const SingleActivator(LogicalKeyboardKey.keyZ, meta: true,
-              shift: true): _redo,
+          const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undo,
+          const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undo,
+          const SingleActivator(
+            LogicalKeyboardKey.keyZ,
+            control: true,
+            shift: true,
+          ): _redo,
+          const SingleActivator(
+            LogicalKeyboardKey.keyZ,
+            meta: true,
+            shift: true,
+          ): _redo,
         },
         child: Column(
-            children: [
-              _buildMenuBar(),
-              FormulaBar(
-                selectedCell: _selectedCell,
-                cellValue: _selectedCellValue,
-                onSubmit: _onFormulaBarSubmit,
-              ),
-              FormattingToolbar(
-                currentStyle: _selectedCellStyle,
-                currentFormat: _selectedCellFormat,
-                onStyleChanged: _onStyleChanged,
-                onFormatChanged: _onFormatChanged,
-                undoDescriptions: sheet.undoManager.undoDescriptions,
-                redoDescriptions: sheet.undoManager.redoDescriptions,
-                onUndoN: _undoN,
-                onRedoN: _redoN,
-              ),
-              Expanded(
-                child: WorksheetTheme(
-                  data: const WorksheetThemeData(),
-                  child: Worksheet(
-                    key: ValueKey(sheet.name),
-                    data: sheet.formulaData,
-                    controller: sheet.controller,
-                    editController: _editController,
-                    dateParser: AnyDate(),
-                    rowCount: defaultRowCount,
-                    columnCount: defaultColumnCount,
-                    customColumnWidths: sheet.customColumnWidths,
-                    customRowHeights: sheet.customRowHeights,
-                    onCellTap: _onCellTap,
-                    onResizeColumn: _onResizeColumn,
-                    onResizeRow: _onResizeRow,
-                  ),
+          children: [
+            _buildMenuBar(),
+            FormulaBar(
+              selectedCell: _selectedCell,
+              cellValue: _selectedCellValue,
+              onSubmit: _onFormulaBarSubmit,
+            ),
+            FormattingToolbar(
+              currentStyle: _selectedCellStyle,
+              currentFormat: _selectedCellFormat,
+              onStyleChanged: _onStyleChanged,
+              onFormatChanged: _onFormatChanged,
+              undoDescriptions: sheet.undoManager.undoDescriptions,
+              redoDescriptions: sheet.undoManager.redoDescriptions,
+              onUndoN: _undoN,
+              onRedoN: _redoN,
+            ),
+            Expanded(
+              child: WorksheetTheme(
+                data: const WorksheetThemeData(),
+                child: Worksheet(
+                  key: ValueKey(sheet.name),
+                  data: sheet.formulaData,
+                  controller: sheet.controller,
+                  editController: _editController,
+                  dateParser: AnyDate(),
+                  rowCount: defaultRowCount,
+                  columnCount: defaultColumnCount,
+                  customColumnWidths: sheet.customColumnWidths,
+                  customRowHeights: sheet.customRowHeights,
+                  onCellTap: _onCellTap,
+                  onResizeColumn: _onResizeColumn,
+                  onResizeRow: _onResizeRow,
                 ),
               ),
-              _buildStatusBar(sheet),
-            ],
-          ),
+            ),
+            _buildStatusBar(sheet),
+          ],
         ),
-      );
+      ),
+    );
   }
 
   Widget _buildMenuBar() {
     return Container(
       height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: const BoxDecoration(
-        color: primaryColor,
-      ),
+      decoration: const BoxDecoration(color: primaryColor),
       child: Row(
         children: [
           Padding(
@@ -468,23 +481,18 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
           const SizedBox(width: 6),
           const Text(
             appTitle,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: Colors.white, fontSize: 14),
           ),
           const Spacer(),
           _MenuButton(
             label: 'Import',
             icon: Icons.file_upload_outlined,
-            onPressed: () =>
-                widget.persistenceService.importFile(_workbook),
+            onPressed: () => widget.persistenceService.importFile(_workbook),
           ),
           _MenuButton(
             label: 'Export',
             icon: Icons.file_download_outlined,
-            onPressed: () =>
-                widget.persistenceService.exportFile(_workbook),
+            onPressed: () => widget.persistenceService.exportFile(_workbook),
           ),
         ],
       ),
@@ -532,9 +540,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       ),
       child: Row(
         children: [
-          Expanded(
-            child: SheetTabs(workbook: _workbook),
-          ),
+          Expanded(child: SheetTabs(workbook: _workbook)),
           if (typeName.isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
