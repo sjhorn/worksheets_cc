@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:js_interop';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +14,55 @@ import 'formula_bar.dart';
 import 'formatting_toolbar.dart';
 import 'sheet_tabs.dart';
 import 'zoom_controls.dart';
+
+// JS interop for system date format detection.
+@JS('Date')
+extension type _JSDate._(JSObject _) implements JSObject {
+  external factory _JSDate(int year, int month, int day);
+}
+
+@JS('Intl.DateTimeFormat')
+extension type _JSIntlDateTimeFormat._(JSObject _) implements JSObject {
+  external factory _JSIntlDateTimeFormat([JSAny? locales, JSAny? options]);
+  external JSString format(_JSDate date);
+}
+
+/// Detects the system date format by formatting a known test date
+/// (Jan 15 2024) via the browser's Intl.DateTimeFormat and inspecting
+/// the component order.
+CellFormat _detectSystemDateFormat() {
+  try {
+    final date = _JSDate(2024, 0, 15); // JS months are 0-based
+    final options = <String, String>{
+      'year': 'numeric',
+      'month': 'numeric',
+      'day': 'numeric',
+    }.jsify();
+    final formatter = _JSIntlDateTimeFormat(null, options);
+    final formatted = formatter.format(date).toDart;
+
+    // Extract the separator character (first non-digit)
+    final sepMatch = RegExp(r'[^\d]').firstMatch(formatted);
+    final sep = sepMatch?.group(0) ?? '/';
+
+    // Split into numeric parts
+    final parts = formatted.split(RegExp(r'[^\d]+'));
+    if (parts.length < 3) return CellFormat.dateIso;
+
+    // year=2024, month=1, day=15
+    if (parts[0] == '2024') {
+      return CellFormat.dateIso; // YMD
+    } else if (parts[0] == '15') {
+      return CellFormat(
+          type: CellFormatType.date, formatCode: 'd${sep}m${sep}yyyy'); // DMY
+    } else {
+      return CellFormat(
+          type: CellFormatType.date, formatCode: 'm${sep}d${sep}yyyy'); // MDY
+    }
+  } catch (_) {
+    return CellFormat.dateIso;
+  }
+}
 
 class SpreadsheetPage extends StatefulWidget {
   const SpreadsheetPage({
@@ -31,6 +81,7 @@ class SpreadsheetPage extends StatefulWidget {
 class _SpreadsheetPageState extends State<SpreadsheetPage> {
   CellCoordinate? _selectedCell;
   CellValue? _selectedCellValue;
+  CellValue? _evaluatedCellValue;
   CellStyle? _selectedCellStyle;
   CellFormat? _selectedCellFormat;
 
@@ -46,10 +97,8 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     _editController = EditController();
     _workbook.addListener(_onWorkbookChanged);
     _workbook.activeSheet.controller.addListener(_onControllerChanged);
-    _dataChangeSub = _workbook.activeSheet.formulaData.changes.listen((_) {
-      widget.persistenceService.scheduleSave(_workbook);
-      setState(_updateSelectedCellInfo);
-    });
+    _dataChangeSub =
+        _workbook.activeSheet.formulaData.changes.listen(_onDataChange);
     _captureWorksheetFocusNode();
   }
 
@@ -88,10 +137,8 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
     // Re-subscribe to data changes for the new active sheet
     _dataChangeSub?.cancel();
-    _dataChangeSub = _workbook.activeSheet.formulaData.changes.listen((_) {
-      widget.persistenceService.scheduleSave(_workbook);
-      setState(_updateSelectedCellInfo);
-    });
+    _dataChangeSub =
+        _workbook.activeSheet.formulaData.changes.listen(_onDataChange);
 
     // Re-capture the Worksheet's FocusNode after the new sheet builds
     _captureWorksheetFocusNode();
@@ -114,6 +161,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   void _updateSelectedCellInfo() {
     if (_selectedCell == null) {
       _selectedCellValue = null;
+      _evaluatedCellValue = null;
       _selectedCellStyle = null;
       _selectedCellFormat = null;
       return;
@@ -122,8 +170,18 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     final sheet = _workbook.activeSheet;
     // Show raw value in formula bar (so formulas display as "=SUM(...)")
     _selectedCellValue = sheet.rawData.getCell(_selectedCell!);
+    _evaluatedCellValue = sheet.formulaData.getCell(_selectedCell!);
     _selectedCellStyle = sheet.rawData.getStyle(_selectedCell!);
     _selectedCellFormat = sheet.rawData.getFormat(_selectedCell!);
+  }
+
+  void _onDataChange(DataChangeEvent event) {
+    widget.persistenceService.scheduleSave(_workbook);
+    if (event.type == DataChangeType.cellValue && event.cell != null) {
+      _maybeAutoAlign(event.cell!);
+      _maybeAutoFormatDate(event.cell!);
+    }
+    setState(_updateSelectedCellInfo);
   }
 
   void _onCellTap(CellCoordinate cell) {
@@ -140,23 +198,54 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     });
   }
 
+  /// Returns the default alignment for a cell value type.
+  /// Numbers and dates align right; everything else aligns left.
+  static CellTextAlignment _defaultAlignmentFor(CellValue? value) {
+    if (value != null &&
+        (value.type == CellValueType.number ||
+            value.type == CellValueType.date)) {
+      return CellTextAlignment.right;
+    }
+    return CellTextAlignment.left;
+  }
+
+  /// Auto-sets alignment on [cell] when textAlignment is null.
+  ///
+  /// Writes directly to sparseData so the change is captured in the
+  /// same undo snapshot that UndoableWorksheetData.setCell is building
+  /// (the after-snapshot hasn't been taken yet when our listener fires).
+  void _maybeAutoAlign(CellCoordinate cell) {
+    final sheet = _workbook.activeSheet;
+    final currentStyle = sheet.rawData.getStyle(cell);
+    if (currentStyle?.textAlignment != null) return;
+
+    final value = sheet.rawData.getCell(cell);
+    final alignment = _defaultAlignmentFor(value);
+    final style =
+        (currentStyle ?? const CellStyle()).copyWith(textAlignment: alignment);
+    sheet.sparseData.setStyle(cell, style);
+  }
+
+  /// Cached system date format, detected once from the browser.
+  static final CellFormat _systemDateFormat = _detectSystemDateFormat();
+
+  /// Auto-sets a locale-appropriate date format when a date is entered
+  /// without an explicit format. Writes directly to sparseData so the
+  /// change is captured in the same undo snapshot.
+  void _maybeAutoFormatDate(CellCoordinate cell) {
+    final sheet = _workbook.activeSheet;
+    final value = sheet.rawData.getCell(cell);
+    if (value == null || !value.isDate) return;
+
+    final currentFormat = sheet.rawData.getFormat(cell);
+    if (currentFormat != null) return;
+
+    sheet.sparseData.setFormat(cell, _systemDateFormat);
+  }
+
   void _setCellValue(CellCoordinate cell, String text) {
     final sheet = _workbook.activeSheet;
-
-    CellValue? value;
-    if (text.isEmpty) {
-      value = null;
-    } else if (text.startsWith('=')) {
-      value = CellValue.formula(text);
-    } else {
-      final number = num.tryParse(text);
-      if (number != null) {
-        value = CellValue.number(number);
-      } else {
-        value = CellValue.text(text);
-      }
-    }
-
+    final value = CellValue.parse(text);
     sheet.formulaData.setCell(cell, value);
 
     setState(() {
@@ -164,10 +253,8 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     });
   }
 
-  void _onFormulaBarSubmit(String text) {
-    if (_selectedCell != null) {
-      _setCellValue(_selectedCell!, text);
-    }
+  void _onFormulaBarSubmit(CellCoordinate cell, String text) {
+    _setCellValue(cell, text);
   }
 
   void _onStyleChanged(CellStyle style) {
@@ -342,6 +429,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
                     data: sheet.formulaData,
                     controller: sheet.controller,
                     editController: _editController,
+                    dateParser: AnyDate(),
                     rowCount: defaultRowCount,
                     columnCount: defaultColumnCount,
                     customColumnWidths: sheet.customColumnWidths,
@@ -383,7 +471,6 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
             style: TextStyle(
               color: Colors.white,
               fontSize: 14,
-              fontWeight: FontWeight.w600,
             ),
           ),
           const Spacer(),
@@ -404,7 +491,39 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     );
   }
 
+  /// Returns a display string for the cell value type shown in the status bar.
+  String _cellTypeName() {
+    final raw = _selectedCellValue;
+    final evaluated = _evaluatedCellValue;
+
+    if (raw == null && evaluated == null) return '';
+
+    if (raw != null && raw.isFormula) {
+      if (evaluated == null) return 'Formula';
+      final resultType = switch (evaluated.type) {
+        CellValueType.number => 'Number',
+        CellValueType.text => 'Text',
+        CellValueType.boolean => 'Boolean',
+        CellValueType.date => 'Date',
+        CellValueType.error => 'Error',
+        CellValueType.formula => 'Formula',
+      };
+      return 'Formula \u203A $resultType';
+    }
+
+    final value = evaluated ?? raw;
+    return switch (value!.type) {
+      CellValueType.text => 'Text',
+      CellValueType.number => 'Number',
+      CellValueType.boolean => 'Boolean',
+      CellValueType.date => 'Date',
+      CellValueType.error => 'Error',
+      CellValueType.formula => 'Formula',
+    };
+  }
+
   Widget _buildStatusBar(SheetModel sheet) {
+    final typeName = _cellTypeName();
     return Container(
       height: 32,
       decoration: const BoxDecoration(
@@ -416,6 +535,17 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
           Expanded(
             child: SheetTabs(workbook: _workbook),
           ),
+          if (typeName.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                typeName,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF666666),
+                ),
+              ),
+            ),
           ZoomControls(
             controller: sheet.controller,
             onZoomChanged: () => setState(() {}),

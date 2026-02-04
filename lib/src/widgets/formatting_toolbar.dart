@@ -231,10 +231,25 @@ class _FormatDropdown extends StatelessWidget {
     ('Text', CellFormat.text),
   ];
 
+  /// Maps the current format to one in the dropdown list.
+  /// Falls back by format type, then to general.
+  CellFormat get _dropdownValue {
+    final fmt = currentFormat ?? CellFormat.general;
+    // Exact match
+    for (final (_, f) in _formats) {
+      if (f == fmt) return f;
+    }
+    // Match by type (e.g. any date format → "Date" entry)
+    for (final (_, f) in _formats) {
+      if (f.type == fmt.type) return f;
+    }
+    return CellFormat.general;
+  }
+
   @override
   Widget build(BuildContext context) {
     return DropdownButton<CellFormat>(
-      value: currentFormat ?? CellFormat.general,
+      value: _dropdownValue,
       underline: const SizedBox.shrink(),
       isDense: true,
       style: const TextStyle(fontSize: 12, color: Colors.black),

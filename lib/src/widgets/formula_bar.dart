@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:worksheet/worksheet.dart';
 
 import '../constants.dart';
@@ -13,7 +14,7 @@ class FormulaBar extends StatefulWidget {
 
   final CellCoordinate? selectedCell;
   final CellValue? cellValue;
-  final ValueChanged<String> onSubmit;
+  final void Function(CellCoordinate cell, String text) onSubmit;
 
   @override
   State<FormulaBar> createState() => _FormulaBarState();
@@ -23,6 +24,13 @@ class _FormulaBarState extends State<FormulaBar> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   bool _isEditing = false;
+  CellCoordinate? _editingCell;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(_onFocusChange);
+  }
 
   @override
   void didUpdateWidget(FormulaBar oldWidget) {
@@ -46,14 +54,35 @@ class _FormulaBarState extends State<FormulaBar> {
     }
   }
 
-  void _onSubmit(String text) {
+  void _onFocusChange() {
+    if (!_focusNode.hasFocus && _isEditing) {
+      _commit();
+    }
+  }
+
+  void _commit() {
+    final cell = _editingCell;
     _isEditing = false;
-    widget.onSubmit(text);
+    _editingCell = null;
+    if (cell != null) {
+      widget.onSubmit(cell, _controller.text);
+    }
+  }
+
+  void _cancel() {
+    _isEditing = false;
+    _updateControllerText();
+    _focusNode.unfocus();
+  }
+
+  void _onSubmit(String text) {
+    _commit();
     _focusNode.unfocus();
   }
 
   @override
   void dispose() {
+    _focusNode.removeListener(_onFocusChange);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -85,17 +114,29 @@ class _FormulaBarState extends State<FormulaBar> {
           const Icon(Icons.functions, size: 16, color: Colors.grey),
           const SizedBox(width: 4),
           Expanded(
-            child: TextField(
-              controller: _controller,
-              focusNode: _focusNode,
-              style: const TextStyle(fontSize: 12),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 6),
+            child: KeyboardListener(
+              focusNode: FocusNode(skipTraversal: true),
+              onKeyEvent: (event) {
+                if (event is KeyDownEvent &&
+                    event.logicalKey == LogicalKeyboardKey.escape) {
+                  _cancel();
+                }
+              },
+              child: TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                style: const TextStyle(fontSize: 12),
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 6),
+                ),
+                onTap: () {
+                  _isEditing = true;
+                  _editingCell = widget.selectedCell;
+                },
+                onSubmitted: _onSubmit,
               ),
-              onTap: () => _isEditing = true,
-              onSubmitted: _onSubmit,
             ),
           ),
         ],
