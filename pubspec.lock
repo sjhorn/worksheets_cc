@@ -252,10 +252,10 @@ packages:
     dependency: "direct main"
     description:
       name: worksheet
-      sha256: "5d1091fb4b39302e595cc0d305cddba77ca49a1cf5fdbcc47f0f31caa416aa8f"
+      sha256: e85630e2369d53aaab2e7d194e3e9adc9c00f44bd76bb1a45369602f660c1b7a
       url: "https://pub.dev"
     source: hosted
-    version: "1.6.0"
+    version: "1.6.2"
   worksheet_formula:
     dependency: "direct main"
     description:
