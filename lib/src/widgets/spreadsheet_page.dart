@@ -469,13 +469,16 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       decoration: const BoxDecoration(color: primaryColor),
       child: Row(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Image.asset(
-              'assets/worksheet.png',
-              height: 24,
-              width: 24,
-              filterQuality: FilterQuality.medium,
+          GestureDetector(
+            onTap: _showAboutDialog,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Image.asset(
+                'assets/worksheet.png',
+                height: 24,
+                width: 24,
+                filterQuality: FilterQuality.medium,
+              ),
             ),
           ),
           const SizedBox(width: 6),
@@ -493,6 +496,34 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
             label: 'Export',
             icon: Icons.file_download_outlined,
             onPressed: () => widget.persistenceService.exportFile(_workbook),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAboutDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text(appTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Version: $appVersion'),
+            const SizedBox(height: 12),
+            const Text('Dependencies',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            for (final entry in dependencyVersions.entries)
+              Text('${entry.key}: ${entry.value}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
           ),
         ],
       ),
