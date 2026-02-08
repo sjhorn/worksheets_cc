@@ -82,6 +82,15 @@ flutter run --profile --trace-skia
 - [ ] Memory disposal in `dispose()` methods
 - [ ] Performance-critical code benchmarked
 
+## Version Bumping
+
+**On every commit that is pushed**, increment the version in both places:
+- `pubspec.yaml` — `version` field (bump build number too, e.g. `1.0.1+2` → `1.0.2+3`)
+- `lib/src/constants.dart` — `appVersion` constant
+
+Use semver: patch for fixes, minor for features, major for breaking changes.
+Also update `dependencyVersions` in `constants.dart` whenever dependencies are upgraded.
+
 ## Release Process
 
 Follow these steps in order. Fix any issues before proceeding to the next step.

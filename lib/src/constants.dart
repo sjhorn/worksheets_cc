@@ -5,7 +5,7 @@ const int defaultRowCount = 1000;
 const int defaultColumnCount = 26;
 const String defaultSheetName = 'Sheet1';
 
-const String appVersion = '1.0.0';
+const String appVersion = '1.0.1';
 const Map<String, String> dependencyVersions = {
   'worksheet': '1.6.3',
   'worksheet_formula': '1.1.1',
