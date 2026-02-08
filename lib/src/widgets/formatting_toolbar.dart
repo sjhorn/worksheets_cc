@@ -36,7 +36,12 @@ class FormattingToolbar extends StatelessWidget {
         border: Border(bottom: BorderSide(color: toolbarBorder)),
         color: headerBackground,
       ),
-      child: Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+            child: Row(
         children: [
           _UndoRedoComboButton(
             icon: Icons.undo,
@@ -111,7 +116,10 @@ class FormattingToolbar extends StatelessWidget {
             onColorSelected: (color) =>
                 onStyleChanged(CellStyle(backgroundColor: color)),
           ),
-        ],
+            ],
+          ),
+          ),
+        ),
       ),
     );
   }

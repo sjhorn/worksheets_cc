@@ -7,8 +7,8 @@ const String defaultSheetName = 'Sheet1';
 
 const String appVersion = '1.0.0';
 const Map<String, String> dependencyVersions = {
-  'worksheet': '1.6.2',
-  'worksheet_formula': '1.1.0',
+  'worksheet': '1.6.3',
+  'worksheet_formula': '1.1.1',
   'a1': '2.2.0',
   'flutter SDK': '3.10.7',
 };

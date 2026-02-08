@@ -252,18 +252,18 @@ packages:
     dependency: "direct main"
     description:
       name: worksheet
-      sha256: e85630e2369d53aaab2e7d194e3e9adc9c00f44bd76bb1a45369602f660c1b7a
+      sha256: a35c24bfe983a31c2c40513446deb7ff678ffc3a1f932e22ce0948f8d2a5e66a
       url: "https://pub.dev"
     source: hosted
-    version: "1.6.2"
+    version: "1.6.3"
   worksheet_formula:
     dependency: "direct main"
     description:
       name: worksheet_formula
-      sha256: "32e1dfe36d4c203896c1e5b4664cc0f7883b0cdbc269f42e58bef789472e8571"
+      sha256: "49c339a90391ebe6d96099d66c040dbaeafec3ee147a0ea83f7c23f525ce7d0d"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.0"
+    version: "1.1.1"
 sdks:
   dart: ">=3.10.7 <4.0.0"
   flutter: ">=3.18.0-18.0.pre.54"
