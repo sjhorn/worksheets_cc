@@ -9,12 +9,18 @@ class FormulaBar extends StatefulWidget {
     super.key,
     required this.selectedCell,
     required this.cellValue,
-    required this.onSubmit,
+    required this.editController,
+    required this.onCommit,
   });
 
   final CellCoordinate? selectedCell;
   final CellValue? cellValue;
-  final void Function(CellCoordinate cell, String text) onSubmit;
+  final EditController editController;
+
+  /// Called when a value is committed from the formula bar.
+  /// The [EditController.commitEdit] handles the cell overlay side;
+  /// this callback lets the page perform any additional work (e.g. auto-align).
+  final void Function(CellCoordinate cell, CellValue? value) onCommit;
 
   @override
   State<FormulaBar> createState() => _FormulaBarState();
@@ -23,27 +29,49 @@ class FormulaBar extends StatefulWidget {
 class _FormulaBarState extends State<FormulaBar> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
-  bool _isEditing = false;
-  CellCoordinate? _editingCell;
+
+  /// Guards against feedback loops when syncing from EditController.
+  bool _syncing = false;
+
+  EditController get _ec => widget.editController;
 
   @override
   void initState() {
     super.initState();
     _focusNode.addListener(_onFocusChange);
+    _ec.addListener(_onEditControllerChanged);
   }
 
   @override
   void didUpdateWidget(FormulaBar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.selectedCell != oldWidget.selectedCell) {
-      _isEditing = false;
+
+    if (oldWidget.editController != widget.editController) {
+      oldWidget.editController.removeListener(_onEditControllerChanged);
+      widget.editController.addListener(_onEditControllerChanged);
     }
-    if (!_isEditing) {
-      _updateControllerText();
+
+    // When the selected cell changes and we're not editing, show cell value.
+    if (!_ec.isEditing) {
+      _showCellValue();
     }
   }
 
-  void _updateControllerText() {
+  @override
+  void dispose() {
+    _ec.removeListener(_onEditControllerChanged);
+    _focusNode.removeListener(_onFocusChange);
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Display helpers
+  // ---------------------------------------------------------------------------
+
+  /// Sets the text field to the committed cell value (not the live edit text).
+  void _showCellValue() {
     final value = widget.cellValue;
     if (value == null) {
       _controller.text = '';
@@ -54,39 +82,103 @@ class _FormulaBarState extends State<FormulaBar> {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // EditController listener  (cell overlay → formula bar)
+  // ---------------------------------------------------------------------------
+
+  void _onEditControllerChanged() {
+    if (_syncing) return;
+
+    if (_ec.isEditing) {
+      // Sync live text from cell overlay → formula bar.
+      if (_controller.text != _ec.currentText) {
+        _syncing = true;
+        _controller.text = _ec.currentText;
+        // Place cursor at end.
+        _controller.selection = TextSelection.collapsed(
+          offset: _controller.text.length,
+        );
+        _syncing = false;
+      }
+    } else {
+      // Editing ended (commit or cancel) — show committed value.
+      _showCellValue();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Focus / tap
+  // ---------------------------------------------------------------------------
+
   void _onFocusChange() {
-    if (!_focusNode.hasFocus && _isEditing) {
+    if (!_focusNode.hasFocus && _ec.isEditing) {
+      // Lost focus while editing — commit.
       _commit();
     }
   }
 
-  void _commit() {
-    final cell = _editingCell;
-    _isEditing = false;
-    _editingCell = null;
-    if (cell != null) {
-      widget.onSubmit(cell, _controller.text);
+  void _onTap() {
+    if (_ec.isEditing) return; // Already editing via cell overlay.
+
+    final cell = widget.selectedCell;
+    if (cell == null) return;
+
+    // Start an edit so the cell overlay also appears.
+    _ec.startEdit(
+      cell: cell,
+      currentValue: widget.cellValue,
+      trigger: EditTrigger.programmatic,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Text changes  (formula bar → cell overlay)
+  // ---------------------------------------------------------------------------
+
+  void _onTextChanged(String text) {
+    if (_syncing) return;
+
+    // If user types before tapping (shouldn't normally happen), start edit.
+    if (!_ec.isEditing) {
+      final cell = widget.selectedCell;
+      if (cell == null) return;
+      _ec.startEdit(
+        cell: cell,
+        currentValue: widget.cellValue,
+        trigger: EditTrigger.programmatic,
+      );
     }
+
+    _syncing = true;
+    _ec.updateText(text);
+    _syncing = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Commit / cancel
+  // ---------------------------------------------------------------------------
+
+  void _commit() {
+    if (!_ec.isEditing) return;
+    _ec.commitEdit(onCommit: widget.onCommit);
   }
 
   void _cancel() {
-    _isEditing = false;
-    _updateControllerText();
+    if (_ec.isEditing) {
+      _ec.cancelEdit();
+    }
+    _showCellValue();
     _focusNode.unfocus();
   }
 
-  void _onSubmit(String text) {
+  void _onSubmitted(String text) {
     _commit();
     _focusNode.unfocus();
   }
 
-  @override
-  void dispose() {
-    _focusNode.removeListener(_onFocusChange);
-    _controller.dispose();
-    _focusNode.dispose();
-    super.dispose();
-  }
+  // ---------------------------------------------------------------------------
+  // Build
+  // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -131,11 +223,9 @@ class _FormulaBarState extends State<FormulaBar> {
                   isDense: true,
                   contentPadding: EdgeInsets.symmetric(vertical: 6),
                 ),
-                onTap: () {
-                  _isEditing = true;
-                  _editingCell = widget.selectedCell;
-                },
-                onSubmitted: _onSubmit,
+                onTap: _onTap,
+                onChanged: _onTextChanged,
+                onSubmitted: _onSubmitted,
               ),
             ),
           ),

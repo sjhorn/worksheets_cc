@@ -7,6 +7,7 @@ import 'package:worksheet/worksheet.dart';
 
 import '../constants.dart';
 import '../models/sheet_model.dart';
+import '../models/border_catalog.dart';
 import '../models/workbook_model.dart';
 import '../services/persistence_service.dart';
 import '../services/undo_manager.dart';
@@ -89,6 +90,9 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   CellStyle? _selectedCellStyle;
   CellFormat? _selectedCellFormat;
 
+  Color _borderPenColor = const Color(0xFF000000);
+  BorderLineOption _borderPenLineOption = BorderCatalog.lineOptions.first;
+
   late EditController _editController;
   StreamSubscription<DataChangeEvent>? _dataChangeSub;
   FocusNode? _worksheetFocusNode;
@@ -99,6 +103,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   void initState() {
     super.initState();
     _editController = EditController();
+    _editController.addListener(_onEditControllerChanged);
     _workbook.addListener(_onWorkbookChanged);
     _workbook.activeSheet.controller.addListener(_onControllerChanged);
     _dataChangeSub = _workbook.activeSheet.formulaData.changes.listen(
@@ -110,6 +115,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   @override
   void dispose() {
     _dataChangeSub?.cancel();
+    _editController.removeListener(_onEditControllerChanged);
     _workbook.activeSheet.controller.removeListener(_onControllerChanged);
     _workbook.removeListener(_onWorkbookChanged);
     _editController.dispose();
@@ -250,18 +256,18 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     sheet.sparseData.setFormat(cell, _systemDateFormat);
   }
 
-  void _setCellValue(CellCoordinate cell, String text) {
-    final sheet = _workbook.activeSheet;
-    final value = CellValue.parse(text);
-    sheet.formulaData.setCell(cell, value);
-
-    setState(() {
-      _updateSelectedCellInfo();
-    });
+  void _onEditControllerChanged() {
+    if (!_editController.isEditing) {
+      // Editing ended — refresh cell info.
+      setState(_updateSelectedCellInfo);
+    }
   }
 
-  void _onFormulaBarSubmit(CellCoordinate cell, String text) {
-    _setCellValue(cell, text);
+  /// Called by [FormulaBar] when it commits via [EditController.commitEdit].
+  void _onFormulaBarCommit(CellCoordinate cell, CellValue? value) {
+    final sheet = _workbook.activeSheet;
+    sheet.formulaData.setCell(cell, value);
+    setState(_updateSelectedCellInfo);
   }
 
   void _onStyleChanged(CellStyle style) {
@@ -303,6 +309,57 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     } else {
       sheet.rawData.setFormat(_selectedCell!, format);
     }
+
+    setState(() {
+      _updateSelectedCellInfo();
+    });
+  }
+
+  void _onClearFormatting() {
+    if (_selectedCell == null) return;
+
+    final sheet = _workbook.activeSheet;
+    final range = sheet.controller.selectedRange;
+
+    if (range != null) {
+      sheet.rawData.batchUpdate((batch) {
+        batch.clearFormats(range);
+        batch.clearStyles(range);
+      });
+    } else {
+      sheet.rawData.setFormat(_selectedCell!, null);
+      sheet.rawData.setStyle(_selectedCell!, null);
+    }
+
+    setState(() {
+      _updateSelectedCellInfo();
+    });
+  }
+
+  void _onBordersChanged(BorderPreset preset) {
+    if (_selectedCell == null) return;
+
+    final sheet = _workbook.activeSheet;
+    final range = sheet.controller.selectedRange ??
+        CellRange(
+          _selectedCell!.row,
+          _selectedCell!.column,
+          _selectedCell!.row,
+          _selectedCell!.column,
+        );
+
+    sheet.rawData.batchUpdate((batch) {
+      for (final coord in range.cells) {
+        final borders = BorderCatalog.bordersForCell(
+          preset, coord, range,
+          borderColor: _borderPenColor,
+          borderWidth: _borderPenLineOption.width,
+          borderLineStyle: _borderPenLineOption.lineStyle,
+        );
+        final existing = sheet.rawData.getStyle(coord) ?? const CellStyle();
+        batch.setStyle(coord, existing.copyWith(borders: borders));
+      }
+    });
 
     setState(() {
       _updateSelectedCellInfo();
@@ -424,13 +481,22 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
             FormulaBar(
               selectedCell: _selectedCell,
               cellValue: _selectedCellValue,
-              onSubmit: _onFormulaBarSubmit,
+              editController: _editController,
+              onCommit: _onFormulaBarCommit,
             ),
             FormattingToolbar(
               currentStyle: _selectedCellStyle,
               currentFormat: _selectedCellFormat,
               onStyleChanged: _onStyleChanged,
               onFormatChanged: _onFormatChanged,
+              onClearFormatting: _onClearFormatting,
+              onBordersChanged: _onBordersChanged,
+              borderColor: _borderPenColor,
+              currentLineOption: _borderPenLineOption,
+              onBorderColorChanged: (color) =>
+                  setState(() => _borderPenColor = color),
+              onBorderLineOptionChanged: (option) =>
+                  setState(() => _borderPenLineOption = option),
               undoDescriptions: sheet.undoManager.undoDescriptions,
               redoDescriptions: sheet.undoManager.redoDescriptions,
               onUndoN: _undoN,
@@ -544,6 +610,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
         CellValueType.text => 'Text',
         CellValueType.boolean => 'Boolean',
         CellValueType.date => 'Date',
+        CellValueType.duration => 'Duration',
         CellValueType.error => 'Error',
         CellValueType.formula => 'Formula',
       };
@@ -556,6 +623,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       CellValueType.number => 'Number',
       CellValueType.boolean => 'Boolean',
       CellValueType.date => 'Date',
+      CellValueType.duration => 'Duration',
       CellValueType.error => 'Error',
       CellValueType.formula => 'Formula',
     };

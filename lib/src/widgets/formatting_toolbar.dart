@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:worksheet/worksheet.dart';
 
 import '../constants.dart';
+import '../models/border_catalog.dart';
+import '../models/format_catalog.dart';
 
 class FormattingToolbar extends StatelessWidget {
   const FormattingToolbar({
@@ -10,8 +12,14 @@ class FormattingToolbar extends StatelessWidget {
     required this.currentFormat,
     required this.onStyleChanged,
     required this.onFormatChanged,
+    required this.onClearFormatting,
     required this.undoDescriptions,
     required this.redoDescriptions,
+    required this.onBordersChanged,
+    required this.borderColor,
+    required this.currentLineOption,
+    required this.onBorderColorChanged,
+    required this.onBorderLineOptionChanged,
     required this.onUndoN,
     required this.onRedoN,
   });
@@ -20,6 +28,12 @@ class FormattingToolbar extends StatelessWidget {
   final CellFormat? currentFormat;
   final ValueChanged<CellStyle> onStyleChanged;
   final ValueChanged<CellFormat> onFormatChanged;
+  final VoidCallback onClearFormatting;
+  final ValueChanged<BorderPreset> onBordersChanged;
+  final Color borderColor;
+  final BorderLineOption currentLineOption;
+  final ValueChanged<Color> onBorderColorChanged;
+  final ValueChanged<BorderLineOption> onBorderLineOptionChanged;
   final List<String> undoDescriptions;
   final List<String> redoDescriptions;
   final ValueChanged<int> onUndoN;
@@ -99,9 +113,40 @@ class FormattingToolbar extends StatelessWidget {
             ),
           ),
           const VerticalDivider(width: 16, indent: 8, endIndent: 8),
-          _FormatDropdown(
+          _ToolbarButton(
+            icon: Icons.attach_money,
+            onPressed: () => onFormatChanged(CellFormat.currency),
+          ),
+          _ToolbarButton(
+            icon: Icons.percent,
+            onPressed: () => onFormatChanged(CellFormat.percentage),
+          ),
+          _FormatTextButton(
+            label: '.0',
+            tooltip: 'Decrease decimal places',
+            onPressed: () {
+              final adjusted =
+                  FormatUtils.adjustDecimals(currentFormat, -1);
+              if (adjusted != null) onFormatChanged(adjusted);
+            },
+          ),
+          _FormatTextButton(
+            label: '.00',
+            tooltip: 'Increase decimal places',
+            onPressed: () {
+              final adjusted =
+                  FormatUtils.adjustDecimals(currentFormat, 1);
+              if (adjusted != null) onFormatChanged(adjusted);
+            },
+          ),
+          _FormatPopupButton(
             currentFormat: currentFormat,
             onFormatChanged: onFormatChanged,
+          ),
+          const VerticalDivider(width: 16, indent: 8, endIndent: 8),
+          _ToolbarButton(
+            icon: Icons.format_clear,
+            onPressed: onClearFormatting,
           ),
           const VerticalDivider(width: 16, indent: 8, endIndent: 8),
           _ColorButton(
@@ -115,6 +160,14 @@ class FormattingToolbar extends StatelessWidget {
             color: style.backgroundColor ?? Colors.white,
             onColorSelected: (color) =>
                 onStyleChanged(CellStyle(backgroundColor: color)),
+          ),
+          const VerticalDivider(width: 16, indent: 8, endIndent: 8),
+          _BorderPopupButton(
+            onBordersChanged: onBordersChanged,
+            borderColor: borderColor,
+            currentLineOption: currentLineOption,
+            onBorderColorChanged: onBorderColorChanged,
+            onBorderLineOptionChanged: onBorderLineOptionChanged,
           ),
             ],
           ),
@@ -220,8 +273,42 @@ class _UndoRedoComboButton extends StatelessWidget {
   }
 }
 
-class _FormatDropdown extends StatelessWidget {
-  const _FormatDropdown({
+class _FormatTextButton extends StatelessWidget {
+  const _FormatTextButton({
+    required this.label,
+    required this.onPressed,
+    this.tooltip,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = SizedBox(
+      width: 28,
+      height: 28,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(4),
+        child: Center(
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+          ),
+        ),
+      ),
+    );
+    if (tooltip != null) {
+      return Tooltip(message: tooltip!, child: button);
+    }
+    return button;
+  }
+}
+
+class _FormatPopupButton extends StatelessWidget {
+  const _FormatPopupButton({
     required this.currentFormat,
     required this.onFormatChanged,
   });
@@ -229,44 +316,188 @@ class _FormatDropdown extends StatelessWidget {
   final CellFormat? currentFormat;
   final ValueChanged<CellFormat> onFormatChanged;
 
-  static const _formats = <(String, CellFormat)>[
-    ('General', CellFormat.general),
-    ('Number', CellFormat.number),
-    ('Currency', CellFormat.currency),
-    ('Percentage', CellFormat.percentage),
-    ('Date', CellFormat.dateIso),
-    ('Scientific', CellFormat.scientific),
-    ('Text', CellFormat.text),
-  ];
-
-  /// Maps the current format to one in the dropdown list.
-  /// Falls back by format type, then to general.
-  CellFormat get _dropdownValue {
-    final fmt = currentFormat ?? CellFormat.general;
-    // Exact match
-    for (final (_, f) in _formats) {
-      if (f == fmt) return f;
-    }
-    // Match by type (e.g. any date format → "Date" entry)
-    for (final (_, f) in _formats) {
-      if (f.type == fmt.type) return f;
-    }
-    return CellFormat.general;
+  bool _isCurrentFormat(CellFormat format) {
+    if (currentFormat == null) return format == CellFormat.general;
+    return currentFormat == format ||
+        currentFormat!.formatCode == format.formatCode;
   }
 
   @override
   Widget build(BuildContext context) {
-    return DropdownButton<CellFormat>(
-      value: _dropdownValue,
-      underline: const SizedBox.shrink(),
-      isDense: true,
-      style: const TextStyle(fontSize: 12, color: Colors.black),
-      items: _formats
-          .map((e) => DropdownMenuItem(value: e.$2, child: Text(e.$1)))
-          .toList(),
-      onChanged: (format) {
-        if (format != null) onFormatChanged(format);
+    return PopupMenuButton<FormatEntry>(
+      tooltip: 'More formats',
+      offset: const Offset(0, 28),
+      onSelected: (entry) {
+        if (entry.isCustom) {
+          final title = entry.label;
+          final List<String> presets;
+          if (title.contains('currency')) {
+            presets = FormatCatalog.currencyPresets;
+          } else if (title.contains('date')) {
+            presets = FormatCatalog.dateTimePresets;
+          } else {
+            presets = FormatCatalog.numberPresets;
+          }
+          _showCustomFormatDialog(context, title, presets, onFormatChanged);
+        } else {
+          onFormatChanged(entry.format);
+        }
       },
+      itemBuilder: (_) {
+        final items = <PopupMenuEntry<FormatEntry>>[];
+        for (var si = 0; si < FormatCatalog.menuSections.length; si++) {
+          if (si > 0) items.add(const PopupMenuDivider());
+          for (final entry in FormatCatalog.menuSections[si]) {
+            final isActive = !entry.isCustom && _isCurrentFormat(entry.format);
+            items.add(
+              PopupMenuItem<FormatEntry>(
+                value: entry,
+                height: 32,
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 20,
+                      child: isActive
+                          ? const Icon(Icons.check, size: 14)
+                          : null,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        entry.label,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                    if (entry.example.isNotEmpty)
+                      Text(
+                        entry.example,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          }
+        }
+        return items;
+      },
+      child: const SizedBox(
+        width: 38,
+        height: 28,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('123', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500)),
+            Icon(Icons.arrow_drop_down, size: 14),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void _showCustomFormatDialog(
+  BuildContext context,
+  String title,
+  List<String> presets,
+  ValueChanged<CellFormat> onApply,
+) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => _CustomFormatDialog(
+      title: title,
+      presets: presets,
+      onApply: onApply,
+    ),
+  );
+}
+
+class _CustomFormatDialog extends StatefulWidget {
+  const _CustomFormatDialog({
+    required this.title,
+    required this.presets,
+    required this.onApply,
+  });
+
+  final String title;
+  final List<String> presets;
+  final ValueChanged<CellFormat> onApply;
+
+  @override
+  State<_CustomFormatDialog> createState() => _CustomFormatDialogState();
+}
+
+class _CustomFormatDialogState extends State<_CustomFormatDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: widget.presets.isNotEmpty ? widget.presets.first : '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _controller,
+            decoration: const InputDecoration(
+              labelText: 'Format code',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
+          ),
+          const SizedBox(height: 12),
+          const Text('Presets', style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: widget.presets.map((preset) {
+              return ActionChip(
+                label: Text(preset, style: const TextStyle(fontSize: 11)),
+                onPressed: () => _controller.text = preset,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final code = _controller.text.trim();
+            if (code.isNotEmpty) {
+              final type = FormatUtils.inferType(code);
+              widget.onApply(CellFormat(type: type, formatCode: code));
+            }
+            Navigator.pop(context);
+          },
+          child: const Text('Apply'),
+        ),
+      ],
     );
   }
 }
@@ -330,4 +561,254 @@ class _ColorButton extends StatelessWidget {
       ),
     );
   }
+}
+
+class _BorderPopupButton extends StatefulWidget {
+  const _BorderPopupButton({
+    required this.onBordersChanged,
+    required this.borderColor,
+    required this.currentLineOption,
+    required this.onBorderColorChanged,
+    required this.onBorderLineOptionChanged,
+  });
+
+  final ValueChanged<BorderPreset> onBordersChanged;
+  final Color borderColor;
+  final BorderLineOption currentLineOption;
+  final ValueChanged<Color> onBorderColorChanged;
+  final ValueChanged<BorderLineOption> onBorderLineOptionChanged;
+
+  @override
+  State<_BorderPopupButton> createState() => _BorderPopupButtonState();
+}
+
+class _BorderPopupButtonState extends State<_BorderPopupButton> {
+  OverlayEntry? _overlayEntry;
+
+  static const _colorPalette = [
+    Colors.black,
+    Colors.red,
+    Colors.orange,
+    Colors.yellow,
+    Colors.green,
+    Colors.blue,
+    Colors.purple,
+    Colors.white,
+  ];
+
+  @override
+  void didUpdateWidget(covariant _BorderPopupButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_overlayEntry != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _overlayEntry?.markNeedsBuild();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _hidePopup();
+    super.dispose();
+  }
+
+  void _togglePopup() {
+    if (_overlayEntry != null) {
+      _hidePopup();
+    } else {
+      _showPopup();
+    }
+  }
+
+  void _showPopup() {
+    final renderBox = context.findRenderObject() as RenderBox;
+    final offset = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+
+    _overlayEntry = OverlayEntry(
+      builder: (_) => Stack(
+        children: [
+          GestureDetector(
+            onTap: _hidePopup,
+            behavior: HitTestBehavior.opaque,
+          ),
+          Positioned(
+            left: offset.dx,
+            top: offset.dy + size.height + 4,
+            child: Material(
+              elevation: 8,
+              borderRadius: BorderRadius.circular(4),
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Preset grid — closes popup
+                    SizedBox(
+                      width: 5 * 28.0 + 4 * 4.0,
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: BorderPreset.values.map((preset) {
+                          return Tooltip(
+                            message: preset.label,
+                            child: InkWell(
+                              onTap: () {
+                                _hidePopup();
+                                widget.onBordersChanged(preset);
+                              },
+                              borderRadius: BorderRadius.circular(4),
+                              child: SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: Icon(preset.icon, size: 18),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const Divider(height: 16),
+                    // Border color — stays open
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.edit,
+                            size: 14, color: widget.borderColor),
+                        const SizedBox(width: 6),
+                        ..._colorPalette.map((c) {
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: GestureDetector(
+                              onTap: () => widget.onBorderColorChanged(c),
+                              child: Container(
+                                width: 16,
+                                height: 16,
+                                decoration: BoxDecoration(
+                                  color: c,
+                                  border: Border.all(color: Colors.grey),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                    const Divider(height: 16),
+                    // Line style options — stays open
+                    ...BorderCatalog.lineOptions.map((option) {
+                      final isSelected =
+                          option == widget.currentLineOption;
+                      return InkWell(
+                        onTap: () =>
+                            widget.onBorderLineOptionChanged(option),
+                        child: SizedBox(
+                          width: 5 * 28.0 + 4 * 4.0,
+                          height: 24,
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 20,
+                                child: isSelected
+                                    ? Icon(Icons.check,
+                                        size: 14,
+                                        color: Colors.grey.shade700)
+                                    : null,
+                              ),
+                              Expanded(
+                                child: CustomPaint(
+                                  painter: _LineStylePainter(
+                                      option, widget.borderColor),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    Overlay.of(context).insert(_overlayEntry!);
+  }
+
+  void _hidePopup() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Borders',
+      child: GestureDetector(
+        onTap: _togglePopup,
+        child: const SizedBox(
+          width: 28,
+          height: 28,
+          child: Icon(Icons.border_all, size: 16),
+        ),
+      ),
+    );
+  }
+}
+
+class _LineStylePainter extends CustomPainter {
+  const _LineStylePainter(this.option, this.color);
+
+  final BorderLineOption option;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = option.width
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.butt;
+
+    final y = size.height / 2;
+    const startX = 4.0;
+    final endX = size.width - 4.0;
+
+    switch (option.lineStyle) {
+      case BorderLineStyle.solid:
+        canvas.drawLine(Offset(startX, y), Offset(endX, y), paint);
+      case BorderLineStyle.dotted:
+        paint.style = PaintingStyle.fill;
+        var x = startX;
+        while (x <= endX) {
+          canvas.drawCircle(Offset(x, y), option.width * 0.6, paint);
+          x += option.width * 3;
+        }
+      case BorderLineStyle.dashed:
+        var x = startX;
+        while (x < endX) {
+          final dashEnd = (x + 6).clamp(startX, endX);
+          canvas.drawLine(Offset(x, y), Offset(dashEnd, y), paint);
+          x += 10;
+        }
+      case BorderLineStyle.double:
+        const gap = 1.5;
+        canvas.drawLine(
+            Offset(startX, y - gap), Offset(endX, y - gap), paint);
+        canvas.drawLine(
+            Offset(startX, y + gap), Offset(endX, y + gap), paint);
+      case BorderLineStyle.none:
+        break;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LineStylePainter old) =>
+      option != old.option || color != old.color;
 }
