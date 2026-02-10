@@ -92,6 +92,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
   Color _borderPenColor = const Color(0xFF000000);
   BorderLineOption _borderPenLineOption = BorderCatalog.lineOptions.first;
+  List<String> _recentFonts = [];
 
   late EditController _editController;
   StreamSubscription<DataChangeEvent>? _dataChangeSub;
@@ -229,10 +230,13 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   void _maybeAutoAlign(CellCoordinate cell) {
     final sheet = _workbook.activeSheet;
     final currentStyle = sheet.rawData.getStyle(cell);
-    if (currentStyle?.textAlignment != null) return;
-
     final value = sheet.rawData.getCell(cell);
     final alignment = _defaultAlignmentFor(value);
+
+    // Re-apply alignment on every edit so it tracks the value type
+    // (e.g. number → right, text → left).
+    if (currentStyle?.textAlignment == alignment) return;
+
     final style = (currentStyle ?? const CellStyle()).copyWith(
       textAlignment: alignment,
     );
@@ -333,6 +337,15 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
     setState(() {
       _updateSelectedCellInfo();
+    });
+  }
+
+  void _onFontUsed(String name) {
+    setState(() {
+      _recentFonts = [
+        name,
+        ..._recentFonts.where((f) => f != name),
+      ].take(5).toList();
     });
   }
 
@@ -499,8 +512,11 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
                   setState(() => _borderPenLineOption = option),
               undoDescriptions: sheet.undoManager.undoDescriptions,
               redoDescriptions: sheet.undoManager.redoDescriptions,
+              currentValue: _evaluatedCellValue,
               onUndoN: _undoN,
               onRedoN: _redoN,
+              recentFonts: _recentFonts,
+              onFontUsed: _onFontUsed,
             ),
             Expanded(
               child: WorksheetTheme(

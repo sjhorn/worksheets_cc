@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:worksheet/worksheet.dart';
 
 import '../constants.dart';
 import '../models/border_catalog.dart';
+import '../models/font_catalog.dart';
 import '../models/format_catalog.dart';
 
 class FormattingToolbar extends StatelessWidget {
@@ -23,10 +25,14 @@ class FormattingToolbar extends StatelessWidget {
     required this.onBorderLineOptionChanged,
     required this.onUndoN,
     required this.onRedoN,
+    required this.recentFonts,
+    required this.onFontUsed,
+    this.currentValue,
   });
 
   final CellStyle? currentStyle;
   final CellFormat? currentFormat;
+  final CellValue? currentValue;
   final ValueChanged<CellStyle> onStyleChanged;
   final ValueChanged<CellFormat> onFormatChanged;
   final VoidCallback onClearFormatting;
@@ -39,6 +45,8 @@ class FormattingToolbar extends StatelessWidget {
   final List<String> redoDescriptions;
   final ValueChanged<int> onUndoN;
   final ValueChanged<int> onRedoN;
+  final List<String> recentFonts;
+  final ValueChanged<String> onFontUsed;
 
   @override
   Widget build(BuildContext context) {
@@ -125,22 +133,39 @@ class FormattingToolbar extends StatelessWidget {
           _ToolbarButton(
             icon: Symbols.decimal_decrease,
             onPressed: () {
-              final adjusted =
-                  FormatUtils.adjustDecimals(currentFormat, -1);
+              final adjusted = FormatUtils.adjustDecimals(
+                currentFormat, -1, cellValue: currentValue,
+              );
               if (adjusted != null) onFormatChanged(adjusted);
             },
           ),
           _ToolbarButton(
             icon: Symbols.decimal_increase,
             onPressed: () {
-              final adjusted =
-                  FormatUtils.adjustDecimals(currentFormat, 1);
+              final adjusted = FormatUtils.adjustDecimals(
+                currentFormat, 1, cellValue: currentValue,
+              );
               if (adjusted != null) onFormatChanged(adjusted);
             },
           ),
           _FormatPopupButton(
             currentFormat: currentFormat,
             onFormatChanged: onFormatChanged,
+          ),
+          const VerticalDivider(width: 16, indent: 8, endIndent: 8),
+          _FontFamilyButton(
+            currentFamily: style.fontFamily ?? 'Roboto',
+            recentFonts: recentFonts,
+            onFontSelected: (name) {
+              onFontUsed(name);
+              onStyleChanged(CellStyle(fontFamily: name));
+            },
+          ),
+          const VerticalDivider(width: 16, indent: 8, endIndent: 8),
+          _FontSizeControl(
+            currentSize: style.fontSize ?? 14.0,
+            onSizeChanged: (size) =>
+                onStyleChanged(CellStyle(fontSize: size)),
           ),
           const VerticalDivider(width: 16, indent: 8, endIndent: 8),
           _ToolbarButton(
@@ -360,6 +385,171 @@ class _FormatPopupButton extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _FontFamilyButton extends StatelessWidget {
+  const _FontFamilyButton({
+    required this.currentFamily,
+    required this.recentFonts,
+    required this.onFontSelected,
+  });
+
+  final String currentFamily;
+  final List<String> recentFonts;
+  final ValueChanged<String> onFontSelected;
+
+  static TextStyle _styleForFont(String name, {double fontSize = 14}) {
+    if (FontCatalog.isGoogleFont(name)) {
+      return GoogleFonts.getFont(name, fontSize: fontSize);
+    }
+    return TextStyle(fontFamily: name, fontSize: fontSize);
+  }
+
+  String get _displayName {
+    final name = currentFamily == 'Roboto' ? 'Default' : currentFamily;
+    return name.length > 8 ? '${name.substring(0, 7)}...' : name;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Font',
+      offset: const Offset(0, 28),
+      onSelected: onFontSelected,
+      itemBuilder: (_) {
+        final items = <PopupMenuEntry<String>>[];
+
+        if (recentFonts.isNotEmpty) {
+          items.add(const PopupMenuItem<String>(
+            enabled: false,
+            height: 24,
+            child: Text(
+              'RECENT',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey,
+              ),
+            ),
+          ));
+          for (final name in recentFonts) {
+            items.add(PopupMenuItem<String>(
+              value: name,
+              height: 32,
+              child: Text(name, style: _styleForFont(name)),
+            ));
+          }
+          items.add(const PopupMenuDivider());
+        }
+
+        for (final name in FontCatalog.allFonts) {
+          final isActive = name == currentFamily;
+          items.add(PopupMenuItem<String>(
+            value: name,
+            height: 32,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  child: isActive
+                      ? const Icon(Icons.check, size: 14)
+                      : null,
+                ),
+                const SizedBox(width: 4),
+                Text(name, style: _styleForFont(name)),
+              ],
+            ),
+          ));
+        }
+
+        return items;
+      },
+      child: SizedBox(
+        width: 90,
+        height: 28,
+        child: Row(
+          children: [
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                _displayName,
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const Icon(Icons.arrow_drop_down, size: 14),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FontSizeControl extends StatelessWidget {
+  const _FontSizeControl({
+    required this.currentSize,
+    required this.onSizeChanged,
+  });
+
+  final double currentSize;
+  final ValueChanged<double> onSizeChanged;
+
+  static const double _minSize = 6;
+  static const double _maxSize = 72;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 24,
+          height: 28,
+          child: IconButton(
+            icon: const Icon(Icons.remove, size: 14),
+            padding: EdgeInsets.zero,
+            onPressed: currentSize > _minSize
+                ? () => onSizeChanged((currentSize - 1).clamp(_minSize, _maxSize))
+                : null,
+            style: IconButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+        ),
+        Container(
+          width: 36,
+          height: 22,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            border: Border.all(color: toolbarBorder),
+            borderRadius: BorderRadius.circular(2),
+          ),
+          child: Text(
+            currentSize.round().toString(),
+            style: const TextStyle(fontSize: 11),
+          ),
+        ),
+        SizedBox(
+          width: 24,
+          height: 28,
+          child: IconButton(
+            icon: const Icon(Icons.add, size: 14),
+            padding: EdgeInsets.zero,
+            onPressed: currentSize < _maxSize
+                ? () => onSizeChanged((currentSize + 1).clamp(_minSize, _maxSize))
+                : null,
+            style: IconButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

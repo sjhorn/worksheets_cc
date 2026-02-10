@@ -139,8 +139,32 @@ class FormatUtils {
   /// Returns a new [CellFormat] with the modified format code, or `null`
   /// if the format cannot be adjusted (e.g. null input or already at 0
   /// decimals when decreasing).
-  static CellFormat? adjustDecimals(CellFormat? current, int delta) {
-    if (current == null) return null;
+  /// Counts the decimal places displayed by a numeric value's string
+  /// representation. Returns 0 for non-numeric or integer values.
+  static int _detectDecimals(CellValue? value) {
+    if (value == null || value.type != CellValueType.number) return 0;
+    final s = value.displayValue;
+    final dot = s.indexOf('.');
+    if (dot < 0) return 0;
+    return s.length - dot - 1;
+  }
+
+  static CellFormat? adjustDecimals(
+    CellFormat? current,
+    int delta, {
+    CellValue? cellValue,
+  }) {
+    // Unformatted cells: detect decimal places from the actual value
+    // so the first click adjusts relative to what the user sees.
+    if (current == null) {
+      final detected = _detectDecimals(cellValue);
+      final newCount = (detected + delta).clamp(0, 10);
+      final decimals = newCount > 0 ? '.${'0' * newCount}' : '';
+      return CellFormat(
+        type: CellFormatType.number,
+        formatCode: '0$decimals',
+      );
+    }
 
     final code = current.formatCode;
     final match = _decimalPattern.firstMatch(code);

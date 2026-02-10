@@ -39,9 +39,70 @@ void main() {
       expect(result, isNull);
     });
 
-    test('null format → null', () {
+    test('null format +1 with no value → 0.0', () {
       final result = FormatUtils.adjustDecimals(null, 1);
-      expect(result, isNull);
+      expect(result, isNotNull);
+      expect(result!.formatCode, '0.0');
+      expect(result.type, CellFormatType.number);
+    });
+
+    test('null format -1 with no value → 0', () {
+      final result = FormatUtils.adjustDecimals(null, -1);
+      expect(result, isNotNull);
+      expect(result!.formatCode, '0');
+      expect(result.type, CellFormatType.number);
+    });
+
+    test('null format +1 with 3.14 → 0.000 (detects 2 decimals)', () {
+      final result = FormatUtils.adjustDecimals(
+        null, 1, cellValue: CellValue.number(3.14),
+      );
+      expect(result, isNotNull);
+      expect(result!.formatCode, '0.000');
+    });
+
+    test('null format -1 with 3.14 → 0.0 (detects 2 decimals)', () {
+      final result = FormatUtils.adjustDecimals(
+        null, -1, cellValue: CellValue.number(3.14),
+      );
+      expect(result, isNotNull);
+      expect(result!.formatCode, '0.0');
+    });
+
+    test('null format -1 with integer → 0', () {
+      final result = FormatUtils.adjustDecimals(
+        null, -1, cellValue: CellValue.number(42),
+      );
+      expect(result, isNotNull);
+      expect(result!.formatCode, '0');
+    });
+
+    test('null format with text cell value → 0.0 (ignores non-number)', () {
+      final result = FormatUtils.adjustDecimals(
+        null, 1, cellValue: const CellValue.text('hello'),
+      );
+      expect(result, isNotNull);
+      expect(result!.formatCode, '0.0');
+    });
+
+    test('null format does not introduce comma grouping', () {
+      final result = FormatUtils.adjustDecimals(
+        null, 1, cellValue: CellValue.number(1234.56),
+      );
+      expect(result, isNotNull);
+      expect(result!.formatCode, isNot(contains(',')));
+    });
+
+    test('cellValue is ignored when format is already set', () {
+      const fmt = CellFormat(
+        type: CellFormatType.number,
+        formatCode: '#,##0.00',
+      );
+      final result = FormatUtils.adjustDecimals(
+        fmt, 1, cellValue: CellValue.number(3.14),
+      );
+      expect(result, isNotNull);
+      expect(result!.formatCode, '#,##0.000');
     });
 
     test('+1 on \$#,##0.00 (currency) preserves prefix', () {
