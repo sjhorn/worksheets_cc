@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:worksheet/worksheet.dart';
 
 import '../constants.dart';
@@ -121,18 +122,16 @@ class FormattingToolbar extends StatelessWidget {
             icon: Icons.percent,
             onPressed: () => onFormatChanged(CellFormat.percentage),
           ),
-          _FormatTextButton(
-            label: '.0',
-            tooltip: 'Decrease decimal places',
+          _ToolbarButton(
+            icon: Symbols.decimal_decrease,
             onPressed: () {
               final adjusted =
                   FormatUtils.adjustDecimals(currentFormat, -1);
               if (adjusted != null) onFormatChanged(adjusted);
             },
           ),
-          _FormatTextButton(
-            label: '.00',
-            tooltip: 'Increase decimal places',
+          _ToolbarButton(
+            icon: Symbols.decimal_increase,
             onPressed: () {
               final adjusted =
                   FormatUtils.adjustDecimals(currentFormat, 1);
@@ -270,40 +269,6 @@ class _UndoRedoComboButton extends StatelessWidget {
         ),
       ],
     );
-  }
-}
-
-class _FormatTextButton extends StatelessWidget {
-  const _FormatTextButton({
-    required this.label,
-    required this.onPressed,
-    this.tooltip,
-  });
-
-  final String label;
-  final VoidCallback onPressed;
-  final String? tooltip;
-
-  @override
-  Widget build(BuildContext context) {
-    final button = SizedBox(
-      width: 28,
-      height: 28,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(4),
-        child: Center(
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
-          ),
-        ),
-      ),
-    );
-    if (tooltip != null) {
-      return Tooltip(message: tooltip!, child: button);
-    }
-    return button;
   }
 }
 
@@ -622,8 +587,14 @@ class _BorderPopupButtonState extends State<_BorderPopupButton> {
 
   void _showPopup() {
     final renderBox = context.findRenderObject() as RenderBox;
-    final offset = renderBox.localToGlobal(Offset.zero);
-    final size = renderBox.size;
+    final buttonOffset = renderBox.localToGlobal(Offset.zero);
+    final buttonSize = renderBox.size;
+    final screenSize = MediaQuery.of(context).size;
+    const popupWidth = 5 * 28.0 + 4 * 4.0 + 16; // grid + padding
+    // Clamp so the popup's right edge stays on screen.
+    final left = (buttonOffset.dx + popupWidth > screenSize.width)
+        ? screenSize.width - popupWidth - 8
+        : buttonOffset.dx;
 
     _overlayEntry = OverlayEntry(
       builder: (_) => Stack(
@@ -633,8 +604,8 @@ class _BorderPopupButtonState extends State<_BorderPopupButton> {
             behavior: HitTestBehavior.opaque,
           ),
           Positioned(
-            left: offset.dx,
-            top: offset.dy + size.height + 4,
+            left: left.clamp(8.0, screenSize.width - popupWidth - 8),
+            top: buttonOffset.dy + buttonSize.height + 4,
             child: Material(
               elevation: 8,
               borderRadius: BorderRadius.circular(4),

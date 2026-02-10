@@ -5,10 +5,11 @@ const int defaultRowCount = 1000;
 const int defaultColumnCount = 26;
 const String defaultSheetName = 'Sheet1';
 
-const String appVersion = '1.0.3';
+const String appVersion = '1.0.4';
 const Map<String, String> dependencyVersions = {
   'worksheet': '1.10.0',
   'worksheet_formula': '1.1.1',
+  'material_symbols_icons': '4.2906.0',
   'a1': '2.2.0',
   'flutter SDK': '3.10.7',
 };

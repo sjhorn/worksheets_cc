@@ -73,6 +73,15 @@ flutter test test/core/span_list_test.dart
 flutter run --profile --trace-skia
 ```
 
+## UI Guidelines
+
+### Dropdown / Popup Positioning
+All toolbar dropdowns and custom overlays must be **viewport-aware**. On narrow screens (e.g. mobile portrait), a popup anchored to the button's left edge can overflow off-screen to the right. Always clamp the popup position so it stays within the visible area:
+- Prefer right-aligning the popup when it would overflow the right edge
+- Keep a minimum margin (8px) from screen edges
+- This applies to custom `OverlayEntry` popups and any manually positioned menus
+- Flutter's built-in `PopupMenuButton` handles this automatically; custom overlays must do it manually
+
 ## Code Review Checklist
 - [ ] Tests written before implementation
 - [ ] All public APIs documented
