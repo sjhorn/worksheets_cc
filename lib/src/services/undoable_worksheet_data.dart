@@ -1,3 +1,4 @@
+import 'package:flutter/painting.dart';
 import 'package:worksheet/worksheet.dart';
 
 import 'undo_manager.dart';
@@ -254,6 +255,95 @@ class UndoableWorksheetData implements WorksheetData {
   }
 
   @override
+  MergedCellRegistry get mergedCells => sparseData.mergedCells;
+
+  @override
+  void mergeCells(CellRange range) {
+    // Snapshot all cells in the range before merge
+    final before = <CellCoordinate, CellSnapshot>{};
+    for (final coord in range.cells) {
+      before[coord] = CellSnapshot.capture(sparseData, coord);
+    }
+
+    sparseData.mergeCells(range);
+
+    final after = <CellCoordinate, CellSnapshot>{};
+    for (final coord in range.cells) {
+      after[coord] = CellSnapshot.capture(sparseData, coord);
+    }
+
+    undoManager.push(MergeUndoAction(
+      sparseData: sparseData,
+      range: range,
+      before: before,
+      after: after,
+      description: 'Merge ${_coordsDescription(range.cells)}',
+    ));
+  }
+
+  @override
+  void unmergeCells(CellCoordinate cell) {
+    // Get the merge region before unmerging so we know the full range
+    final region = sparseData.mergedCells.getRegion(cell);
+    final range = region?.range;
+
+    // Snapshot all cells in the merged range (not just the anchor)
+    final before = <CellCoordinate, CellSnapshot>{};
+    if (range != null) {
+      for (final coord in range.cells) {
+        before[coord] = CellSnapshot.capture(sparseData, coord);
+      }
+    } else {
+      before[cell] = CellSnapshot.capture(sparseData, cell);
+    }
+
+    sparseData.unmergeCells(cell);
+
+    final after = <CellCoordinate, CellSnapshot>{};
+    for (final coord in before.keys) {
+      after[coord] = CellSnapshot.capture(sparseData, coord);
+    }
+
+    undoManager.push(UnmergeUndoAction(
+      sparseData: sparseData,
+      range: range ?? CellRange(cell.row, cell.column, cell.row, cell.column),
+      before: before,
+      after: after,
+      description: 'Unmerge ${cell.toNotation()}',
+    ));
+  }
+
+  @override
+  List<TextSpan>? getRichText(CellCoordinate coord) =>
+      sparseData.getRichText(coord);
+
+  @override
+  void setRichText(CellCoordinate coord, List<TextSpan>? richText) {
+    final before = CellSnapshot.capture(sparseData, coord);
+    sparseData.setRichText(coord, richText);
+    final after = CellSnapshot.capture(sparseData, coord);
+    undoManager.push(SnapshotUndoAction(
+      sparseData: sparseData,
+      before: {coord: before},
+      after: {coord: after},
+      description: 'Rich text ${coord.toNotation()}',
+    ));
+  }
+
+  @override
+  void replicateMerges({
+    required CellRange sourceRange,
+    required CellRange targetRange,
+    required bool vertical,
+  }) {
+    sparseData.replicateMerges(
+      sourceRange: sourceRange,
+      targetRange: targetRange,
+      vertical: vertical,
+    );
+  }
+
+  @override
   void dispose() {
     // Don't dispose sparseData — SheetModel owns it
   }
@@ -303,6 +393,12 @@ class _TrackingBatchProxy implements WorksheetDataBatch {
   void setFormat(CellCoordinate coord, CellFormat? format) {
     _tracker.recordBefore(coord);
     _real.setFormat(coord, format);
+  }
+
+  @override
+  void setRichText(CellCoordinate coord, List<TextSpan>? richText) {
+    _tracker.recordBefore(coord);
+    _real.setRichText(coord, richText);
   }
 
   @override

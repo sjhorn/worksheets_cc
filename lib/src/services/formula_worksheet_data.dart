@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:a1/a1.dart';
+import 'package:flutter/painting.dart';
 import 'package:worksheet/worksheet.dart';
 import 'package:worksheet_formula/worksheet_formula.dart';
 
@@ -63,7 +64,14 @@ class FormulaWorksheetData implements WorksheetData {
 
     try {
       final result = engine.evaluateString(formulaString, context);
-      final cellValue = _formulaValueToCellValue(result);
+      var cellValue = _formulaValueToCellValue(result);
+      // If the result is a number and the formula involves dates,
+      // convert the serial number back to a date.
+      if (cellValue != null &&
+          cellValue.isNumber &&
+          _formulaInvolvesDate(formulaString)) {
+        cellValue = _serialToDate(cellValue.asDouble);
+      }
       if (cellValue != null) {
         _cache[coord] = cellValue;
       }
@@ -108,6 +116,47 @@ class FormulaWorksheetData implements WorksheetData {
 
   /// Clear all cached formula results.
   void clearCache() => _cache.clear();
+
+  /// Date function names that produce serial numbers.
+  static final _dateFunctionPattern = RegExp(
+    r'\b(DATE|TODAY|NOW|EDATE|EOMONTH|DATEVALUE|WORKDAY|WORKDAY\.INTL)\b',
+    caseSensitive: false,
+  );
+
+  /// Returns true if the formula references date cells or uses date functions.
+  bool _formulaInvolvesDate(String formula) {
+    // Check for date function calls
+    if (_dateFunctionPattern.hasMatch(formula)) return true;
+
+    // Check if any referenced cell contains or evaluates to a date.
+    // Uses getCell (which evaluates formulas) so chained date formulas
+    // like =C5+1 where C5=C4+1 are detected.
+    try {
+      final refs = engine.getCellReferences(formula);
+      for (final ref in refs) {
+        final coord = CellCoordinate(ref.row, ref.column);
+        final raw = _inner.getCell(coord);
+        if (raw != null && raw.isDate) return true;
+        // Also check evaluated value for formula cells
+        if (raw != null && raw.isFormula) {
+          final evaluated = getCell(coord);
+          if (evaluated != null && evaluated.isDate) return true;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// Excel epoch: 1899-12-30.
+  static final _epoch = DateTime.utc(1899, 12, 30);
+
+  /// Converts an Excel serial number back to a [CellValue.date].
+  /// Returns [CellValue.number] if the serial is out of valid date range.
+  CellValue _serialToDate(double serial) {
+    final days = serial.truncate();
+    if (days < 1 || days > 2958465) return CellValue.number(serial);
+    return CellValue.date(_epoch.add(Duration(days: days)));
+  }
 
   CellValue? _formulaValueToCellValue(FormulaValue fv) {
     return switch (fv) {
@@ -183,6 +232,35 @@ class FormulaWorksheetData implements WorksheetData {
     Cell? Function(CellCoordinate coord, Cell? sourceCell)? valueGenerator,
   ]) =>
       _inner.fillRange(source, range, valueGenerator);
+
+  @override
+  MergedCellRegistry get mergedCells => _inner.mergedCells;
+
+  @override
+  void mergeCells(CellRange range) => _inner.mergeCells(range);
+
+  @override
+  void unmergeCells(CellCoordinate cell) => _inner.unmergeCells(cell);
+
+  @override
+  List<TextSpan>? getRichText(CellCoordinate coord) =>
+      _inner.getRichText(coord);
+
+  @override
+  void setRichText(CellCoordinate coord, List<TextSpan>? richText) =>
+      _inner.setRichText(coord, richText);
+
+  @override
+  void replicateMerges({
+    required CellRange sourceRange,
+    required CellRange targetRange,
+    required bool vertical,
+  }) =>
+      _inner.replicateMerges(
+        sourceRange: sourceRange,
+        targetRange: targetRange,
+        vertical: vertical,
+      );
 
   @override
   void dispose() {

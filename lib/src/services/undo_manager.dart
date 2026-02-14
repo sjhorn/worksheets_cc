@@ -1,3 +1,4 @@
+import 'package:flutter/painting.dart';
 import 'package:worksheet/worksheet.dart';
 
 /// Abstract interface for an undoable/redoable action.
@@ -70,19 +71,21 @@ class UndoManager {
   }
 }
 
-/// Captures the value, style, and format of a cell at a point in time.
+/// Captures the value, style, format, and rich text of a cell at a point in time.
 class CellSnapshot {
-  const CellSnapshot({this.value, this.style, this.format});
+  const CellSnapshot({this.value, this.style, this.format, this.richText});
 
   final CellValue? value;
   final CellStyle? style;
   final CellFormat? format;
+  final List<TextSpan>? richText;
 
   factory CellSnapshot.capture(WorksheetData data, CellCoordinate coord) {
     return CellSnapshot(
       value: data.getCell(coord),
       style: data.getStyle(coord),
       format: data.getFormat(coord),
+      richText: data.getRichText(coord),
     );
   }
 
@@ -91,6 +94,7 @@ class CellSnapshot {
     data.setCell(coord, value);
     data.setStyle(coord, style);
     data.setFormat(coord, format);
+    data.setRichText(coord, richText);
   }
 }
 
@@ -117,6 +121,7 @@ class SnapshotUndoAction implements UndoAction {
         batch.setCell(entry.key, entry.value.value);
         batch.setStyle(entry.key, entry.value.style);
         batch.setFormat(entry.key, entry.value.format);
+        batch.setRichText(entry.key, entry.value.richText);
       }
     });
   }
@@ -128,6 +133,97 @@ class SnapshotUndoAction implements UndoAction {
         batch.setCell(entry.key, entry.value.value);
         batch.setStyle(entry.key, entry.value.style);
         batch.setFormat(entry.key, entry.value.format);
+        batch.setRichText(entry.key, entry.value.richText);
+      }
+    });
+  }
+}
+
+/// Undoes/redoes a merge operation by restoring cell snapshots and
+/// toggling the merge registry.
+class MergeUndoAction implements UndoAction {
+  MergeUndoAction({
+    required this.sparseData,
+    required this.range,
+    required this.before,
+    required this.after,
+    required this.description,
+  });
+
+  final SparseWorksheetData sparseData;
+  final CellRange range;
+  final Map<CellCoordinate, CellSnapshot> before;
+  final Map<CellCoordinate, CellSnapshot> after;
+  @override
+  final String description;
+
+  @override
+  void undo() {
+    sparseData.unmergeCells(CellCoordinate(range.startRow, range.startColumn));
+    sparseData.batchUpdate((batch) {
+      for (final entry in before.entries) {
+        batch.setCell(entry.key, entry.value.value);
+        batch.setStyle(entry.key, entry.value.style);
+        batch.setFormat(entry.key, entry.value.format);
+        batch.setRichText(entry.key, entry.value.richText);
+      }
+    });
+  }
+
+  @override
+  void redo() {
+    sparseData.batchUpdate((batch) {
+      for (final entry in after.entries) {
+        batch.setCell(entry.key, entry.value.value);
+        batch.setStyle(entry.key, entry.value.style);
+        batch.setFormat(entry.key, entry.value.format);
+        batch.setRichText(entry.key, entry.value.richText);
+      }
+    });
+    sparseData.mergeCells(range);
+  }
+}
+
+/// Undoes/redoes an unmerge operation by restoring cell snapshots and
+/// toggling the merge registry.
+class UnmergeUndoAction implements UndoAction {
+  UnmergeUndoAction({
+    required this.sparseData,
+    required this.range,
+    required this.before,
+    required this.after,
+    required this.description,
+  });
+
+  final SparseWorksheetData sparseData;
+  final CellRange range;
+  final Map<CellCoordinate, CellSnapshot> before;
+  final Map<CellCoordinate, CellSnapshot> after;
+  @override
+  final String description;
+
+  @override
+  void undo() {
+    sparseData.mergeCells(range);
+    sparseData.batchUpdate((batch) {
+      for (final entry in before.entries) {
+        batch.setCell(entry.key, entry.value.value);
+        batch.setStyle(entry.key, entry.value.style);
+        batch.setFormat(entry.key, entry.value.format);
+        batch.setRichText(entry.key, entry.value.richText);
+      }
+    });
+  }
+
+  @override
+  void redo() {
+    sparseData.unmergeCells(CellCoordinate(range.startRow, range.startColumn));
+    sparseData.batchUpdate((batch) {
+      for (final entry in after.entries) {
+        batch.setCell(entry.key, entry.value.value);
+        batch.setStyle(entry.key, entry.value.style);
+        batch.setFormat(entry.key, entry.value.format);
+        batch.setRichText(entry.key, entry.value.richText);
       }
     });
   }

@@ -139,6 +139,14 @@ class WebPersistenceService implements PersistenceService {
       cells[key] = _serializeCell(cell);
     }
 
+    final merges = <String>[];
+    for (final region in sheet.rawData.mergedCells.regions) {
+      final r = region.range;
+      final start = CellCoordinate(r.startRow, r.startColumn).toNotation();
+      final end = CellCoordinate(r.endRow, r.endColumn).toNotation();
+      merges.add('$start:$end');
+    }
+
     return {
       'name': sheet.name,
       'cells': cells,
@@ -146,6 +154,7 @@ class WebPersistenceService implements PersistenceService {
           .map((k, v) => MapEntry(k.toString(), v)),
       'rowHeights': sheet.customRowHeights
           .map((k, v) => MapEntry(k.toString(), v)),
+      if (merges.isNotEmpty) 'merges': merges,
     };
   }
 
@@ -169,6 +178,32 @@ class WebPersistenceService implements PersistenceService {
       };
     }
 
+    if (cell.richText != null && cell.richText!.isNotEmpty) {
+      map['richText'] =
+          cell.richText!.map((span) => _serializeSpan(span)).toList();
+    }
+
+    return map;
+  }
+
+  Map<String, dynamic> _serializeSpan(TextSpan span) {
+    final map = <String, dynamic>{'text': span.text ?? ''};
+    if (span.style != null) {
+      final s = span.style!;
+      if (s.fontWeight == FontWeight.bold) map['bold'] = true;
+      if (s.fontStyle == FontStyle.italic) map['italic'] = true;
+      if (s.decoration != null) {
+        if (s.decoration!.contains(TextDecoration.underline)) {
+          map['underline'] = true;
+        }
+        if (s.decoration!.contains(TextDecoration.lineThrough)) {
+          map['strikethrough'] = true;
+        }
+      }
+      if (s.color != null) map['color'] = s.color!.toARGB32();
+      if (s.fontSize != null) map['fontSize'] = s.fontSize;
+      if (s.fontFamily != null) map['fontFamily'] = s.fontFamily;
+    }
     return map;
   }
 
@@ -191,6 +226,21 @@ class WebPersistenceService implements PersistenceService {
     }
     if (style.textAlignment != null) {
       map['align'] = style.textAlignment!.name;
+    }
+    if (style.fontFamily != null) {
+      map['fontFamily'] = style.fontFamily;
+    }
+    if (style.underline == true) {
+      map['underline'] = true;
+    }
+    if (style.strikethrough == true) {
+      map['strikethrough'] = true;
+    }
+    if (style.wrapText == true) {
+      map['wrapText'] = true;
+    }
+    if (style.verticalAlignment != null) {
+      map['vAlign'] = style.verticalAlignment!.name;
     }
     return map;
   }
@@ -240,6 +290,18 @@ class WebPersistenceService implements PersistenceService {
           (entry.value as num).toDouble();
     }
 
+    final merges = json['merges'] as List<dynamic>? ?? [];
+    for (final mergeStr in merges) {
+      final parts = (mergeStr as String).split(':');
+      if (parts.length == 2) {
+        final start = CellCoordinate.fromNotation(parts[0]);
+        final end = CellCoordinate.fromNotation(parts[1]);
+        sheet.rawData.mergeCells(
+          CellRange(start.row, start.column, end.row, end.column),
+        );
+      }
+    }
+
     // Clear undo history — deserialized data shouldn't be undoable
     sheet.undoManager.clear();
   }
@@ -268,6 +330,35 @@ class WebPersistenceService implements PersistenceService {
       final type = CellFormatType.values.byName(formatJson['type'] as String);
       data.setFormat(coord, CellFormat(type: type, formatCode: formatJson['code'] as String));
     }
+
+    if (json.containsKey('richText')) {
+      final spans = (json['richText'] as List)
+          .map((s) => _deserializeSpan(s as Map<String, dynamic>))
+          .toList();
+      data.setRichText(coord, spans);
+    }
+  }
+
+  TextSpan _deserializeSpan(Map<String, dynamic> json) {
+    final decorations = <TextDecoration>[];
+    if (json['underline'] == true) decorations.add(TextDecoration.underline);
+    if (json['strikethrough'] == true) {
+      decorations.add(TextDecoration.lineThrough);
+    }
+
+    return TextSpan(
+      text: json['text'] as String? ?? '',
+      style: TextStyle(
+        fontWeight: json['bold'] == true ? FontWeight.bold : null,
+        fontStyle: json['italic'] == true ? FontStyle.italic : null,
+        decoration:
+            decorations.isNotEmpty ? TextDecoration.combine(decorations) : null,
+        color: json['color'] != null ? Color(json['color'] as int) : null,
+        fontSize:
+            json['fontSize'] != null ? (json['fontSize'] as num).toDouble() : null,
+        fontFamily: json['fontFamily'] as String?,
+      ),
+    );
   }
 
   CellValue? _parseCellValue(String type, String value) {
@@ -293,6 +384,13 @@ class WebPersistenceService implements PersistenceService {
       fontSize: json['size'] != null ? (json['size'] as num).toDouble() : null,
       textAlignment: json['align'] != null
           ? CellTextAlignment.values.byName(json['align'] as String)
+          : null,
+      fontFamily: json['fontFamily'] as String?,
+      underline: json['underline'] == true ? true : null,
+      strikethrough: json['strikethrough'] == true ? true : null,
+      wrapText: json['wrapText'] == true ? true : null,
+      verticalAlignment: json['vAlign'] != null
+          ? CellVerticalAlignment.values.byName(json['vAlign'] as String)
           : null,
     );
   }
