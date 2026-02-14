@@ -436,18 +436,18 @@ packages:
     dependency: "direct main"
     description:
       name: worksheet
-      sha256: "6a77b4ea2e46bef954143c3cd7e92fd38a68e0b16c76e0940885bacaa8fe577e"
+      sha256: "66da702dbed696a10e44e60ed86581ba1e5418897f50bb4f29b919280d914906"
       url: "https://pub.dev"
     source: hosted
-    version: "1.10.0"
+    version: "2.5.2"
   worksheet_formula:
     dependency: "direct main"
     description:
       name: worksheet_formula
-      sha256: "49c339a90391ebe6d96099d66c040dbaeafec3ee147a0ea83f7c23f525ce7d0d"
+      sha256: "9d6375ee43c5d403677c40abbe9be71cf2df68ca176d35a134f46e5b672f0b7a"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.1"
+    version: "1.3.0"
   xdg_directories:
     dependency: transitive
     description:
