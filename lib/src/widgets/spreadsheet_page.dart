@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:js_interop';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +7,7 @@ import 'package:worksheet/worksheet.dart';
 import '../constants.dart';
 import '../models/sheet_model.dart';
 import '../models/border_catalog.dart';
+import '../models/merge_catalog.dart';
 import '../models/workbook_model.dart';
 import '../services/persistence_service.dart';
 import '../services/undo_manager.dart';
@@ -16,68 +16,19 @@ import 'formatting_toolbar.dart';
 import 'sheet_tabs.dart';
 import 'zoom_controls.dart';
 
-// JS interop for system date format detection.
-@JS('Date')
-extension type _JSDate._(JSObject _) implements JSObject {
-  external factory _JSDate(int year, int month, int day);
-}
-
-@JS('Intl.DateTimeFormat')
-extension type _JSIntlDateTimeFormat._(JSObject _) implements JSObject {
-  external factory _JSIntlDateTimeFormat([JSAny? locales, JSAny? options]);
-  external JSString format(_JSDate date);
-}
-
-/// Detects the system date format by formatting a known test date
-/// (Jan 15 2024) via the browser's Intl.DateTimeFormat and inspecting
-/// the component order.
-CellFormat _detectSystemDateFormat() {
-  try {
-    final date = _JSDate(2024, 0, 15); // JS months are 0-based
-    final options = <String, String>{
-      'year': 'numeric',
-      'month': 'numeric',
-      'day': 'numeric',
-    }.jsify();
-    final formatter = _JSIntlDateTimeFormat(null, options);
-    final formatted = formatter.format(date).toDart;
-
-    // Extract the separator character (first non-digit)
-    final sepMatch = RegExp(r'[^\d]').firstMatch(formatted);
-    final sep = sepMatch?.group(0) ?? '/';
-
-    // Split into numeric parts
-    final parts = formatted.split(RegExp(r'[^\d]+'));
-    if (parts.length < 3) return CellFormat.dateIso;
-
-    // year=2024, month=1, day=15
-    if (parts[0] == '2024') {
-      return CellFormat.dateIso; // YMD
-    } else if (parts[0] == '15') {
-      return CellFormat(
-        type: CellFormatType.date,
-        formatCode: 'd${sep}m${sep}yyyy',
-      ); // DMY
-    } else {
-      return CellFormat(
-        type: CellFormatType.date,
-        formatCode: 'm${sep}d${sep}yyyy',
-      ); // MDY
-    }
-  } catch (_) {
-    return CellFormat.dateIso;
-  }
-}
-
 class SpreadsheetPage extends StatefulWidget {
   const SpreadsheetPage({
     super.key,
     required this.workbook,
     required this.persistenceService,
+    required this.isDarkMode,
+    required this.onToggleDarkMode,
   });
 
   final WorkbookModel workbook;
   final WebPersistenceService persistenceService;
+  final bool isDarkMode;
+  final VoidCallback onToggleDarkMode;
 
   @override
   State<SpreadsheetPage> createState() => _SpreadsheetPageState();
@@ -192,7 +143,6 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     widget.persistenceService.scheduleSave(_workbook);
     if (event.type == DataChangeType.cellValue && event.cell != null) {
       _maybeAutoAlign(event.cell!);
-      _maybeAutoFormatDate(event.cell!);
     }
     setState(_updateSelectedCellInfo);
   }
@@ -230,7 +180,9 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   void _maybeAutoAlign(CellCoordinate cell) {
     final sheet = _workbook.activeSheet;
     final currentStyle = sheet.rawData.getStyle(cell);
-    final value = sheet.rawData.getCell(cell);
+    // Use evaluated value so formulas that produce numbers/dates
+    // get the correct alignment (e.g. =C4+1 → date → right).
+    final value = sheet.formulaData.getCell(cell);
     final alignment = _defaultAlignmentFor(value);
 
     // Re-apply alignment on every edit so it tracks the value type
@@ -243,23 +195,6 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     sheet.sparseData.setStyle(cell, style);
   }
 
-  /// Cached system date format, detected once from the browser.
-  static final CellFormat _systemDateFormat = _detectSystemDateFormat();
-
-  /// Auto-sets a locale-appropriate date format when a date is entered
-  /// without an explicit format. Writes directly to sparseData so the
-  /// change is captured in the same undo snapshot.
-  void _maybeAutoFormatDate(CellCoordinate cell) {
-    final sheet = _workbook.activeSheet;
-    final value = sheet.rawData.getCell(cell);
-    if (value == null || !value.isDate) return;
-
-    final currentFormat = sheet.rawData.getFormat(cell);
-    if (currentFormat != null) return;
-
-    sheet.sparseData.setFormat(cell, _systemDateFormat);
-  }
-
   void _onEditControllerChanged() {
     if (!_editController.isEditing) {
       // Editing ended — refresh cell info.
@@ -268,14 +203,30 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   }
 
   /// Called by [FormulaBar] when it commits via [EditController.commitEdit].
-  void _onFormulaBarCommit(CellCoordinate cell, CellValue? value) {
+  void _onFormulaBarCommit(CellCoordinate cell, CellValue? value,
+      {CellFormat? detectedFormat}) {
     final sheet = _workbook.activeSheet;
     sheet.formulaData.setCell(cell, value);
+    if (detectedFormat != null && sheet.rawData.getFormat(cell) == null) {
+      sheet.sparseData.setFormat(cell, detectedFormat);
+    }
     setState(_updateSelectedCellInfo);
   }
 
   void _onStyleChanged(CellStyle style) {
     if (_selectedCell == null) return;
+
+    // When editing, apply font/size/color to the inline rich text selection
+    if (_editController.isEditing) {
+      final rtc = _editController.richTextController;
+      if (rtc != null) {
+        if (style.textColor != null) rtc.setColor(style.textColor!);
+        if (style.fontSize != null) rtc.setFontSize(style.fontSize!);
+        if (style.fontFamily != null) rtc.setFontFamily(style.fontFamily!);
+        setState(() {});
+        return;
+      }
+    }
 
     final sheet = _workbook.activeSheet;
     final range = sheet.controller.selectedRange;
@@ -329,10 +280,14 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       sheet.rawData.batchUpdate((batch) {
         batch.clearFormats(range);
         batch.clearStyles(range);
+        for (final coord in range.cells) {
+          batch.setRichText(coord, null);
+        }
       });
     } else {
       sheet.rawData.setFormat(_selectedCell!, null);
       sheet.rawData.setStyle(_selectedCell!, null);
+      sheet.rawData.setRichText(_selectedCell!, null);
     }
 
     setState(() {
@@ -381,6 +336,11 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
   void _toggleBold() {
     if (_selectedCell == null) return;
+    if (_editController.isEditing) {
+      _editController.toggleBold();
+      setState(() {});
+      return;
+    }
     final sheet = _workbook.activeSheet;
     final existing =
         sheet.rawData.getStyle(_selectedCell!) ?? const CellStyle();
@@ -392,6 +352,11 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
   void _toggleItalic() {
     if (_selectedCell == null) return;
+    if (_editController.isEditing) {
+      _editController.toggleItalic();
+      setState(() {});
+      return;
+    }
     final sheet = _workbook.activeSheet;
     final existing =
         sheet.rawData.getStyle(_selectedCell!) ?? const CellStyle();
@@ -399,6 +364,77 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
         ? FontStyle.normal
         : FontStyle.italic;
     _onStyleChanged(CellStyle(fontStyle: newStyle));
+  }
+
+  void _toggleUnderline() {
+    if (_selectedCell == null) return;
+    if (_editController.isEditing) {
+      _editController.toggleUnderline();
+      setState(() {});
+      return;
+    }
+    _onStyleChanged(
+      CellStyle(underline: !(_selectedCellStyle?.underline == true)),
+    );
+  }
+
+  void _toggleStrikethrough() {
+    if (_selectedCell == null) return;
+    if (_editController.isEditing) {
+      _editController.toggleStrikethrough();
+      setState(() {});
+      return;
+    }
+    _onStyleChanged(
+      CellStyle(strikethrough: !(_selectedCellStyle?.strikethrough == true)),
+    );
+  }
+
+  bool get _isCellMerged {
+    if (_selectedCell == null) return false;
+    return _workbook.activeSheet.rawData.mergedCells.isMerged(_selectedCell!);
+  }
+
+  bool get _hasRangeSelected {
+    final range = _workbook.activeSheet.controller.selectedRange;
+    return range != null;
+  }
+
+  void _onMergeCells(MergeType type) {
+    final sheet = _workbook.activeSheet;
+
+    switch (type) {
+      case MergeType.mergeAll:
+        final range = sheet.controller.selectedRange;
+        if (range != null) {
+          sheet.rawData.mergeCells(range);
+        }
+      case MergeType.mergeVertically:
+        final range = sheet.controller.selectedRange;
+        if (range != null) {
+          for (var col = range.startColumn; col <= range.endColumn; col++) {
+            sheet.rawData.mergeCells(
+              CellRange(range.startRow, col, range.endRow, col),
+            );
+          }
+        }
+      case MergeType.mergeHorizontally:
+        final range = sheet.controller.selectedRange;
+        if (range != null) {
+          for (var row = range.startRow; row <= range.endRow; row++) {
+            sheet.rawData.mergeCells(
+              CellRange(row, range.startColumn, row, range.endColumn),
+            );
+          }
+        }
+      case MergeType.unmerge:
+        if (_selectedCell != null) {
+          sheet.rawData.unmergeCells(_selectedCell!);
+        }
+    }
+
+    widget.persistenceService.scheduleSave(_workbook);
+    setState(_updateSelectedCellInfo);
   }
 
   void _onResizeColumn(int column, double newWidth) {
@@ -475,6 +511,10 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
               _toggleItalic,
           const SingleActivator(LogicalKeyboardKey.keyI, meta: true):
               _toggleItalic,
+          const SingleActivator(LogicalKeyboardKey.keyU, control: true):
+              _toggleUnderline,
+          const SingleActivator(LogicalKeyboardKey.keyU, meta: true):
+              _toggleUnderline,
           const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undo,
           const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undo,
           const SingleActivator(
@@ -517,10 +557,27 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
               onRedoN: _redoN,
               recentFonts: _recentFonts,
               onFontUsed: _onFontUsed,
+              onToggleBold: _toggleBold,
+              onToggleItalic: _toggleItalic,
+              onToggleUnderline: _toggleUnderline,
+              onToggleStrikethrough: _toggleStrikethrough,
+              editController: _editController,
+              onMergeCells: _onMergeCells,
+              hasRangeSelected: _hasRangeSelected,
+              isCellMerged: _isCellMerged,
             ),
             Expanded(
               child: WorksheetTheme(
-                data: const WorksheetThemeData(),
+                data: widget.isDarkMode
+                    ? const WorksheetThemeData(
+                        defaultColumnWidth: 100.0,
+                        defaultRowHeight: 21.0,
+                        headerStyle: HeaderStyle.darkStyle,
+                      )
+                    : const WorksheetThemeData(
+                        defaultColumnWidth: 100.0,
+                        defaultRowHeight: 21.0,
+                      ),
                 child: Worksheet(
                   key: ValueKey(sheet.name),
                   data: sheet.formulaData,
@@ -545,10 +602,11 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   }
 
   Widget _buildMenuBar() {
+    final brightness = Theme.of(context).brightness;
     return Container(
       height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: const BoxDecoration(color: primaryColor),
+      decoration: BoxDecoration(color: AppColors.menuBarBg(brightness)),
       child: Row(
         children: [
           GestureDetector(
@@ -578,6 +636,20 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
             label: 'Export',
             icon: Icons.file_download_outlined,
             onPressed: () => widget.persistenceService.exportFile(_workbook),
+          ),
+          SizedBox(
+            width: 32,
+            height: 32,
+            child: IconButton(
+              icon: Icon(
+                widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
+                size: 16,
+                color: Colors.white70,
+              ),
+              padding: EdgeInsets.zero,
+              onPressed: widget.onToggleDarkMode,
+              tooltip: widget.isDarkMode ? 'Light mode' : 'Dark mode',
+            ),
           ),
         ],
       ),
@@ -647,11 +719,12 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
   Widget _buildStatusBar(SheetModel sheet) {
     final typeName = _cellTypeName();
+    final brightness = Theme.of(context).brightness;
     return Container(
       height: 32,
-      decoration: const BoxDecoration(
-        color: headerBackground,
-        border: Border(top: BorderSide(color: toolbarBorder)),
+      decoration: BoxDecoration(
+        color: AppColors.headerBg(brightness),
+        border: Border(top: BorderSide(color: AppColors.border(brightness))),
       ),
       child: Row(
         children: [
@@ -661,9 +734,9 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
                 typeName,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  color: Color(0xFF666666),
+                  color: AppColors.statusBarText(brightness),
                 ),
               ),
             ),

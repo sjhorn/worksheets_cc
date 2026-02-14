@@ -20,6 +20,7 @@ class _WorksheetsAppState extends State<WorksheetsApp> {
   late final WorkbookModel _workbook;
   late final WebPersistenceService _persistenceService;
   bool _isLoading = true;
+  bool _isDarkMode = false;
 
   @override
   void initState() {
@@ -50,6 +51,14 @@ class _WorksheetsAppState extends State<WorksheetsApp> {
         colorScheme: ColorScheme.fromSeed(seedColor: primaryColor),
         useMaterial3: true,
       ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: primaryColor,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+      ),
+      themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
       home: _isLoading
           ? const Scaffold(
               body: Center(child: CircularProgressIndicator()),
@@ -57,6 +66,9 @@ class _WorksheetsAppState extends State<WorksheetsApp> {
           : SpreadsheetPage(
               workbook: _workbook,
               persistenceService: _persistenceService,
+              isDarkMode: _isDarkMode,
+              onToggleDarkMode: () =>
+                  setState(() => _isDarkMode = !_isDarkMode),
             ),
     );
   }

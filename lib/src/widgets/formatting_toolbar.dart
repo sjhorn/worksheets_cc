@@ -7,6 +7,7 @@ import '../constants.dart';
 import '../models/border_catalog.dart';
 import '../models/font_catalog.dart';
 import '../models/format_catalog.dart';
+import '../models/merge_catalog.dart';
 
 class FormattingToolbar extends StatelessWidget {
   const FormattingToolbar({
@@ -27,7 +28,15 @@ class FormattingToolbar extends StatelessWidget {
     required this.onRedoN,
     required this.recentFonts,
     required this.onFontUsed,
+    required this.onToggleBold,
+    required this.onToggleItalic,
+    required this.onToggleUnderline,
+    required this.onToggleStrikethrough,
+    this.editController,
     this.currentValue,
+    this.onMergeCells,
+    this.hasRangeSelected = false,
+    this.isCellMerged = false,
   });
 
   final CellStyle? currentStyle;
@@ -47,17 +56,40 @@ class FormattingToolbar extends StatelessWidget {
   final ValueChanged<int> onRedoN;
   final List<String> recentFonts;
   final ValueChanged<String> onFontUsed;
+  final VoidCallback onToggleBold;
+  final VoidCallback onToggleItalic;
+  final VoidCallback onToggleUnderline;
+  final VoidCallback onToggleStrikethrough;
+  final EditController? editController;
+  final ValueChanged<MergeType>? onMergeCells;
+  final bool hasRangeSelected;
+  final bool isCellMerged;
 
   @override
   Widget build(BuildContext context) {
     final style = currentStyle ?? const CellStyle();
+    final isEditing = editController?.isEditing ?? false;
 
+    final isBold = isEditing
+        ? editController!.isSelectionBold
+        : style.fontWeight == FontWeight.bold;
+    final isItalic = isEditing
+        ? editController!.isSelectionItalic
+        : style.fontStyle == FontStyle.italic;
+    final isUnderline = isEditing
+        ? editController!.isSelectionUnderline
+        : style.underline == true;
+    final isStrikethrough = isEditing
+        ? editController!.isSelectionStrikethrough
+        : style.strikethrough == true;
+
+    final brightness = Theme.of(context).brightness;
     return Container(
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: toolbarBorder)),
-        color: headerBackground,
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.border(brightness))),
+        color: AppColors.headerBg(brightness),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) => SingleChildScrollView(
@@ -79,25 +111,23 @@ class FormattingToolbar extends StatelessWidget {
           const VerticalDivider(width: 16, indent: 8, endIndent: 8),
           _ToolbarButton(
             icon: Icons.format_bold,
-            isActive: style.fontWeight == FontWeight.bold,
-            onPressed: () => onStyleChanged(
-              CellStyle(
-                fontWeight: style.fontWeight == FontWeight.bold
-                    ? FontWeight.normal
-                    : FontWeight.bold,
-              ),
-            ),
+            isActive: isBold,
+            onPressed: onToggleBold,
           ),
           _ToolbarButton(
             icon: Icons.format_italic,
-            isActive: style.fontStyle == FontStyle.italic,
-            onPressed: () => onStyleChanged(
-              CellStyle(
-                fontStyle: style.fontStyle == FontStyle.italic
-                    ? FontStyle.normal
-                    : FontStyle.italic,
-              ),
-            ),
+            isActive: isItalic,
+            onPressed: onToggleItalic,
+          ),
+          _ToolbarButton(
+            icon: Icons.format_underlined,
+            isActive: isUnderline,
+            onPressed: onToggleUnderline,
+          ),
+          _ToolbarButton(
+            icon: Icons.format_strikethrough,
+            isActive: isStrikethrough,
+            onPressed: onToggleStrikethrough,
           ),
           const VerticalDivider(width: 16, indent: 8, endIndent: 8),
           _ToolbarButton(
@@ -119,6 +149,39 @@ class FormattingToolbar extends StatelessWidget {
             isActive: style.textAlignment == CellTextAlignment.right,
             onPressed: () => onStyleChanged(
               const CellStyle(textAlignment: CellTextAlignment.right),
+            ),
+          ),
+          const VerticalDivider(width: 16, indent: 8, endIndent: 8),
+          _ToolbarButton(
+            icon: Icons.wrap_text,
+            isActive: style.wrapText == true,
+            onPressed: () => onStyleChanged(
+              CellStyle(wrapText: !(style.wrapText == true)),
+            ),
+          ),
+          const VerticalDivider(width: 16, indent: 8, endIndent: 8),
+          _ToolbarButton(
+            icon: Icons.vertical_align_top,
+            isActive: style.verticalAlignment == CellVerticalAlignment.top,
+            onPressed: () => onStyleChanged(
+              const CellStyle(
+                  verticalAlignment: CellVerticalAlignment.top),
+            ),
+          ),
+          _ToolbarButton(
+            icon: Icons.vertical_align_center,
+            isActive: style.verticalAlignment == CellVerticalAlignment.middle,
+            onPressed: () => onStyleChanged(
+              const CellStyle(
+                  verticalAlignment: CellVerticalAlignment.middle),
+            ),
+          ),
+          _ToolbarButton(
+            icon: Icons.vertical_align_bottom,
+            isActive: style.verticalAlignment == CellVerticalAlignment.bottom,
+            onPressed: () => onStyleChanged(
+              const CellStyle(
+                  verticalAlignment: CellVerticalAlignment.bottom),
             ),
           ),
           const VerticalDivider(width: 16, indent: 8, endIndent: 8),
@@ -193,6 +256,14 @@ class FormattingToolbar extends StatelessWidget {
             onBorderColorChanged: onBorderColorChanged,
             onBorderLineOptionChanged: onBorderLineOptionChanged,
           ),
+          if (onMergeCells != null) ...[
+            const VerticalDivider(width: 16, indent: 8, endIndent: 8),
+            _MergePopupButton(
+              onMergeCells: onMergeCells!,
+              hasRangeSelected: hasRangeSelected,
+              isCellMerged: isCellMerged,
+            ),
+          ],
             ],
           ),
           ),
@@ -525,7 +596,9 @@ class _FontSizeControl extends StatelessWidget {
           height: 22,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            border: Border.all(color: toolbarBorder),
+            border: Border.all(
+              color: AppColors.border(Theme.of(context).brightness),
+            ),
             borderRadius: BorderRadius.circular(2),
           ),
           child: Text(
@@ -712,10 +785,46 @@ class _ColorButton extends StatelessWidget {
       child: SizedBox(
         width: 28,
         height: 28,
-        child: Icon(icon, size: 16, color: color),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Clip the bottom 4px of the icon to hide its built-in color bar
+            Positioned(
+              top: 3,
+              child: ClipRect(
+                clipper: _BottomClip(clipHeight: 4),
+                child: Icon(icon, size: 18),
+              ),
+            ),
+            // Our colored indicator bar drawn over the clipped area
+            Positioned(
+              bottom: 3,
+              child: Container(
+                width: 16,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: color,
+                  border: Border.all(color: Colors.grey, width: 0.5),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+class _BottomClip extends CustomClipper<Rect> {
+  const _BottomClip({required this.clipHeight});
+  final double clipHeight;
+
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(0, 0, size.width, size.height - clipHeight);
+
+  @override
+  bool shouldReclip(_BottomClip oldClipper) => clipHeight != oldClipper.clipHeight;
 }
 
 class _BorderPopupButton extends StatefulWidget {
@@ -917,6 +1026,67 @@ class _BorderPopupButtonState extends State<_BorderPopupButton> {
           width: 28,
           height: 28,
           child: Icon(Icons.border_all, size: 16),
+        ),
+      ),
+    );
+  }
+}
+
+class _MergePopupButton extends StatelessWidget {
+  const _MergePopupButton({
+    required this.onMergeCells,
+    required this.hasRangeSelected,
+    required this.isCellMerged,
+  });
+
+  final ValueChanged<MergeType> onMergeCells;
+  final bool hasRangeSelected;
+  final bool isCellMerged;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<MergeType>(
+      tooltip: 'Merge cells',
+      offset: const Offset(0, 28),
+      onSelected: onMergeCells,
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: MergeType.mergeAll,
+          enabled: hasRangeSelected,
+          height: 32,
+          child: const Text('Merge all', style: TextStyle(fontSize: 13)),
+        ),
+        PopupMenuItem(
+          value: MergeType.mergeVertically,
+          enabled: hasRangeSelected,
+          height: 32,
+          child:
+              const Text('Merge vertically', style: TextStyle(fontSize: 13)),
+        ),
+        PopupMenuItem(
+          value: MergeType.mergeHorizontally,
+          enabled: hasRangeSelected,
+          height: 32,
+          child: const Text('Merge horizontally',
+              style: TextStyle(fontSize: 13)),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: MergeType.unmerge,
+          enabled: isCellMerged,
+          height: 32,
+          child: const Text('Unmerge', style: TextStyle(fontSize: 13)),
+        ),
+      ],
+      child: const SizedBox(
+        width: 38,
+        height: 28,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Symbols.cell_merge, size: 16),
+            Icon(Icons.arrow_drop_down, size: 14),
+          ],
         ),
       ),
     );

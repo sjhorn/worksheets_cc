@@ -20,7 +20,8 @@ class FormulaBar extends StatefulWidget {
   /// Called when a value is committed from the formula bar.
   /// The [EditController.commitEdit] handles the cell overlay side;
   /// this callback lets the page perform any additional work (e.g. auto-align).
-  final void Function(CellCoordinate cell, CellValue? value) onCommit;
+  final void Function(CellCoordinate cell, CellValue? value,
+      {CellFormat? detectedFormat}) onCommit;
 
   @override
   State<FormulaBar> createState() => _FormulaBarState();
@@ -184,18 +185,19 @@ class _FormulaBarState extends State<FormulaBar> {
   Widget build(BuildContext context) {
     final cellRef = widget.selectedCell?.toNotation() ?? '';
 
+    final borderColor = AppColors.border(Theme.of(context).brightness);
     return Container(
       height: 28,
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: toolbarBorder)),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: borderColor)),
       ),
       child: Row(
         children: [
           Container(
             width: 60,
             alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              border: Border(right: BorderSide(color: toolbarBorder)),
+            decoration: BoxDecoration(
+              border: Border(right: BorderSide(color: borderColor)),
             ),
             child: Text(
               cellRef,

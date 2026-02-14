@@ -13,9 +13,10 @@ class SheetTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     return Container(
       height: 32,
-      color: headerBackground,
+      color: AppColors.headerBg(brightness),
       child: Row(
         children: [
           SizedBox(
@@ -43,12 +44,17 @@ class SheetTabs extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      color: isActive ? Colors.white : null,
+                      color: isActive
+                          ? AppColors.sheetTabActive(brightness)
+                          : null,
                       border: isActive
-                          ? const Border(
-                              top: BorderSide(color: primaryColor, width: 2),
-                              left: BorderSide(color: toolbarBorder),
-                              right: BorderSide(color: toolbarBorder),
+                          ? Border(
+                              top: const BorderSide(
+                                  color: primaryColor, width: 2),
+                              left: BorderSide(
+                                  color: AppColors.border(brightness)),
+                              right: BorderSide(
+                                  color: AppColors.border(brightness)),
                             )
                           : null,
                     ),
