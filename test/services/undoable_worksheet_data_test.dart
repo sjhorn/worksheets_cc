@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:worksheet/worksheet.dart';
 import 'package:worksheets_cc/src/services/undo_manager.dart';
@@ -28,9 +26,10 @@ void main() {
     });
 
     test('getStyle delegates to sparseData', () {
-      sparseData.setStyle(
-          const CellCoordinate(0, 0), const CellStyle(fontSize: 16));
-      expect(undoable.getStyle(const CellCoordinate(0, 0))!.fontSize, 16);
+      sparseData.setStyle(const CellCoordinate(0, 0),
+          const CellStyle(textAlignment: CellTextAlignment.center));
+      expect(undoable.getStyle(const CellCoordinate(0, 0))!.textAlignment,
+          CellTextAlignment.center);
     });
 
     test('getFormat delegates to sparseData', () {
@@ -99,7 +98,8 @@ void main() {
   group('setStyle undo/redo', () {
     test('undo restores previous style', () {
       const coord = CellCoordinate(0, 0);
-      undoable.setStyle(coord, const CellStyle(fontWeight: FontWeight.bold));
+      undoable.setStyle(
+          coord, const CellStyle(textAlignment: CellTextAlignment.right));
 
       undoManager.undo();
       expect(sparseData.getStyle(coord), isNull);
@@ -107,12 +107,13 @@ void main() {
 
     test('redo re-applies style', () {
       const coord = CellCoordinate(0, 0);
-      undoable.setStyle(coord, const CellStyle(fontWeight: FontWeight.bold));
+      undoable.setStyle(
+          coord, const CellStyle(textAlignment: CellTextAlignment.right));
 
       undoManager.undo();
       undoManager.redo();
-      expect(
-          sparseData.getStyle(coord)!.fontWeight, FontWeight.bold);
+      expect(sparseData.getStyle(coord)!.textAlignment,
+          CellTextAlignment.right);
     });
   });
 
@@ -195,10 +196,10 @@ void main() {
 
     test('batch with style changes undoes correctly', () {
       undoable.batchUpdate((batch) {
-        batch.setStyle(
-            const CellCoordinate(0, 0), const CellStyle(fontSize: 20));
-        batch.setStyle(
-            const CellCoordinate(0, 1), const CellStyle(fontSize: 24));
+        batch.setStyle(const CellCoordinate(0, 0),
+            const CellStyle(textAlignment: CellTextAlignment.left));
+        batch.setStyle(const CellCoordinate(0, 1),
+            const CellStyle(textAlignment: CellTextAlignment.right));
       });
 
       undoManager.undo();
@@ -279,8 +280,8 @@ void main() {
     });
 
     test('setStyle generates "Style" description', () {
-      undoable.setStyle(
-          const CellCoordinate(2, 1), const CellStyle(fontSize: 16));
+      undoable.setStyle(const CellCoordinate(2, 1),
+          const CellStyle(textAlignment: CellTextAlignment.center));
       expect(undoManager.undoDescriptions.first, 'Style B3');
     });
 

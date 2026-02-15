@@ -32,8 +32,12 @@ class FormattingToolbar extends StatelessWidget {
     required this.onToggleItalic,
     required this.onToggleUnderline,
     required this.onToggleStrikethrough,
+    required this.onFontFamilyChanged,
+    required this.onFontSizeChanged,
+    required this.onTextColorChanged,
     this.editController,
     this.currentValue,
+    this.currentTextStyle,
     this.onMergeCells,
     this.hasRangeSelected = false,
     this.isCellMerged = false,
@@ -42,6 +46,8 @@ class FormattingToolbar extends StatelessWidget {
   final CellStyle? currentStyle;
   final CellFormat? currentFormat;
   final CellValue? currentValue;
+  /// Effective text style derived from rich text spans or defaults.
+  final TextStyle? currentTextStyle;
   final ValueChanged<CellStyle> onStyleChanged;
   final ValueChanged<CellFormat> onFormatChanged;
   final VoidCallback onClearFormatting;
@@ -60,6 +66,9 @@ class FormattingToolbar extends StatelessWidget {
   final VoidCallback onToggleItalic;
   final VoidCallback onToggleUnderline;
   final VoidCallback onToggleStrikethrough;
+  final ValueChanged<String> onFontFamilyChanged;
+  final ValueChanged<double> onFontSizeChanged;
+  final ValueChanged<Color> onTextColorChanged;
   final EditController? editController;
   final ValueChanged<MergeType>? onMergeCells;
   final bool hasRangeSelected;
@@ -69,19 +78,20 @@ class FormattingToolbar extends StatelessWidget {
   Widget build(BuildContext context) {
     final style = currentStyle ?? const CellStyle();
     final isEditing = editController?.isEditing ?? false;
+    final ts = currentTextStyle;
 
     final isBold = isEditing
         ? editController!.isSelectionBold
-        : style.fontWeight == FontWeight.bold;
+        : ts?.fontWeight == FontWeight.bold;
     final isItalic = isEditing
         ? editController!.isSelectionItalic
-        : style.fontStyle == FontStyle.italic;
+        : ts?.fontStyle == FontStyle.italic;
     final isUnderline = isEditing
         ? editController!.isSelectionUnderline
-        : style.underline == true;
+        : ts?.decoration?.contains(TextDecoration.underline) == true;
     final isStrikethrough = isEditing
         ? editController!.isSelectionStrikethrough
-        : style.strikethrough == true;
+        : ts?.decoration?.contains(TextDecoration.lineThrough) == true;
 
     final brightness = Theme.of(context).brightness;
     return Container(
@@ -217,18 +227,17 @@ class FormattingToolbar extends StatelessWidget {
           ),
           const VerticalDivider(width: 16, indent: 8, endIndent: 8),
           _FontFamilyButton(
-            currentFamily: style.fontFamily ?? 'Roboto',
+            currentFamily: ts?.fontFamily ?? 'Roboto',
             recentFonts: recentFonts,
             onFontSelected: (name) {
               onFontUsed(name);
-              onStyleChanged(CellStyle(fontFamily: name));
+              onFontFamilyChanged(name);
             },
           ),
           const VerticalDivider(width: 16, indent: 8, endIndent: 8),
           _FontSizeControl(
-            currentSize: style.fontSize ?? 14.0,
-            onSizeChanged: (size) =>
-                onStyleChanged(CellStyle(fontSize: size)),
+            currentSize: ts?.fontSize ?? 14.0,
+            onSizeChanged: onFontSizeChanged,
           ),
           const VerticalDivider(width: 16, indent: 8, endIndent: 8),
           _ToolbarButton(
@@ -238,9 +247,8 @@ class FormattingToolbar extends StatelessWidget {
           const VerticalDivider(width: 16, indent: 8, endIndent: 8),
           _ColorButton(
             icon: Icons.format_color_text,
-            color: style.textColor ?? Colors.black,
-            onColorSelected: (color) =>
-                onStyleChanged(CellStyle(textColor: color)),
+            color: ts?.color ?? Colors.black,
+            onColorSelected: onTextColorChanged,
           ),
           _ColorButton(
             icon: Icons.format_color_fill,
@@ -248,7 +256,6 @@ class FormattingToolbar extends StatelessWidget {
             onColorSelected: (color) =>
                 onStyleChanged(CellStyle(backgroundColor: color)),
           ),
-          const VerticalDivider(width: 16, indent: 8, endIndent: 8),
           _BorderPopupButton(
             onBordersChanged: onBordersChanged,
             borderColor: borderColor,
@@ -257,7 +264,6 @@ class FormattingToolbar extends StatelessWidget {
             onBorderLineOptionChanged: onBorderLineOptionChanged,
           ),
           if (onMergeCells != null) ...[
-            const VerticalDivider(width: 16, indent: 8, endIndent: 8),
             _MergePopupButton(
               onMergeCells: onMergeCells!,
               hasRangeSelected: hasRangeSelected,
@@ -756,6 +762,10 @@ class _ColorButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<Color>(
       onSelected: onColorSelected,
+      offset: const Offset(0, 28),
+      style: IconButton.styleFrom(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      ),
       itemBuilder: (_) => [
         PopupMenuItem(
           enabled: false,
@@ -1020,12 +1030,22 @@ class _BorderPopupButtonState extends State<_BorderPopupButton> {
   Widget build(BuildContext context) {
     return Tooltip(
       message: 'Borders',
-      child: GestureDetector(
-        onTap: _togglePopup,
-        child: const SizedBox(
-          width: 28,
-          height: 28,
-          child: Icon(Icons.border_all, size: 16),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: _togglePopup,
+          borderRadius: BorderRadius.circular(4),
+          child: const SizedBox(
+            width: 38,
+            height: 28,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.border_all, size: 16),
+                Icon(Icons.arrow_drop_down, size: 14),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1049,6 +1069,9 @@ class _MergePopupButton extends StatelessWidget {
       tooltip: 'Merge cells',
       offset: const Offset(0, 28),
       onSelected: onMergeCells,
+      style: IconButton.styleFrom(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      ),
       itemBuilder: (_) => [
         PopupMenuItem(
           value: MergeType.mergeAll,

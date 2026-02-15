@@ -5,9 +5,9 @@ const int defaultRowCount = 1048576; // 2^20, matches Excel
 const int defaultColumnCount = 16384; // 2^14 (A–XFD), matches Excel
 const String defaultSheetName = 'Sheet1';
 
-const String appVersion = '1.5.0';
+const String appVersion = '1.6.0';
 const Map<String, String> dependencyVersions = {
-  'worksheet': '2.5.2',
+  'worksheet': '3.0.0',
   'worksheet_formula': '1.3.0',
   'material_symbols_icons': '4.2906.0',
   'google_fonts': '8.0.0',

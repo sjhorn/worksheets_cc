@@ -212,29 +212,8 @@ class WebPersistenceService implements PersistenceService {
     if (style.backgroundColor != null) {
       map['bg'] = style.backgroundColor!.toARGB32();
     }
-    if (style.textColor != null) {
-      map['fg'] = style.textColor!.toARGB32();
-    }
-    if (style.fontWeight != null) {
-      map['bold'] = style.fontWeight == FontWeight.bold;
-    }
-    if (style.fontStyle != null) {
-      map['italic'] = style.fontStyle == FontStyle.italic;
-    }
-    if (style.fontSize != null) {
-      map['size'] = style.fontSize;
-    }
     if (style.textAlignment != null) {
       map['align'] = style.textAlignment!.name;
-    }
-    if (style.fontFamily != null) {
-      map['fontFamily'] = style.fontFamily;
-    }
-    if (style.underline == true) {
-      map['underline'] = true;
-    }
-    if (style.strikethrough == true) {
-      map['strikethrough'] = true;
     }
     if (style.wrapText == true) {
       map['wrapText'] = true;
@@ -311,10 +290,11 @@ class WebPersistenceService implements PersistenceService {
     CellCoordinate coord,
     SparseWorksheetData data,
   ) {
+    CellValue? cellValue;
     if (json.containsKey('type') && json.containsKey('value')) {
       final typeStr = json['type'] as String;
       final valueStr = json['value'] as String;
-      final cellValue = _parseCellValue(typeStr, valueStr);
+      cellValue = _parseCellValue(typeStr, valueStr);
       if (cellValue != null) {
         data.setCell(coord, cellValue);
       }
@@ -323,6 +303,18 @@ class WebPersistenceService implements PersistenceService {
     if (json.containsKey('style')) {
       final styleJson = json['style'] as Map<String, dynamic>;
       data.setStyle(coord, _deserializeStyle(styleJson));
+
+      // v1 migration: if style had text properties but no richText,
+      // create a richText span from the text-level style + cell value
+      if (!json.containsKey('richText')) {
+        final migratedSpan = _migrateTextStyleFromV1(styleJson);
+        if (migratedSpan != null) {
+          final text = cellValue?.rawValue.toString() ?? '';
+          data.setRichText(coord, [
+            TextSpan(text: text, style: migratedSpan.style),
+          ]);
+        }
+      }
     }
 
     if (json.containsKey('format')) {
@@ -376,22 +368,53 @@ class WebPersistenceService implements PersistenceService {
     return CellStyle(
       backgroundColor:
           json['bg'] != null ? Color(json['bg'] as int) : null,
-      textColor: json['fg'] != null ? Color(json['fg'] as int) : null,
-      fontWeight:
-          json['bold'] == true ? FontWeight.bold : null,
-      fontStyle:
-          json['italic'] == true ? FontStyle.italic : null,
-      fontSize: json['size'] != null ? (json['size'] as num).toDouble() : null,
       textAlignment: json['align'] != null
           ? CellTextAlignment.values.byName(json['align'] as String)
           : null,
-      fontFamily: json['fontFamily'] as String?,
-      underline: json['underline'] == true ? true : null,
-      strikethrough: json['strikethrough'] == true ? true : null,
       wrapText: json['wrapText'] == true ? true : null,
       verticalAlignment: json['vAlign'] != null
           ? CellVerticalAlignment.values.byName(json['vAlign'] as String)
           : null,
+    );
+  }
+
+  /// Migrates v1 style JSON that had text properties in CellStyle
+  /// into a rich text TextSpan. Returns null if no text props found.
+  TextSpan? _migrateTextStyleFromV1(Map<String, dynamic> styleJson) {
+    final hasBold = styleJson['bold'] == true;
+    final hasItalic = styleJson['italic'] == true;
+    final hasUnderline = styleJson['underline'] == true;
+    final hasStrikethrough = styleJson['strikethrough'] == true;
+    final hasFg = styleJson['fg'] != null;
+    final hasSize = styleJson['size'] != null;
+    final hasFamily = styleJson['fontFamily'] != null;
+
+    if (!hasBold &&
+        !hasItalic &&
+        !hasUnderline &&
+        !hasStrikethrough &&
+        !hasFg &&
+        !hasSize &&
+        !hasFamily) {
+      return null;
+    }
+
+    final decorations = <TextDecoration>[];
+    if (hasUnderline) decorations.add(TextDecoration.underline);
+    if (hasStrikethrough) decorations.add(TextDecoration.lineThrough);
+
+    return TextSpan(
+      style: TextStyle(
+        fontWeight: hasBold ? FontWeight.bold : null,
+        fontStyle: hasItalic ? FontStyle.italic : null,
+        decoration: decorations.isNotEmpty
+            ? TextDecoration.combine(decorations)
+            : null,
+        color: hasFg ? Color(styleJson['fg'] as int) : null,
+        fontSize:
+            hasSize ? (styleJson['size'] as num).toDouble() : null,
+        fontFamily: hasFamily ? styleJson['fontFamily'] as String : null,
+      ),
     );
   }
 }

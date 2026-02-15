@@ -160,6 +160,7 @@ class FormulaWorksheetData implements WorksheetData {
 
   CellValue? _formulaValueToCellValue(FormulaValue fv) {
     return switch (fv) {
+      SerialValue(value: final n) => _serialToDate(n.toDouble()),
       NumberValue(value: final n) => CellValue.number(n),
       TextValue(value: final s) => CellValue.text(s),
       BooleanValue(value: final b) => CellValue.boolean(b),
@@ -218,7 +219,7 @@ class FormulaWorksheetData implements WorksheetData {
   void clearRange(CellRange range) => _inner.clearRange(range);
 
   @override
-  void smartFill(
+  CellRange? smartFill(
     CellRange range,
     CellCoordinate destination, [
     Cell? Function(CellCoordinate coord, Cell? sourceCell)? valueGenerator,
@@ -249,6 +250,14 @@ class FormulaWorksheetData implements WorksheetData {
   @override
   void setRichText(CellCoordinate coord, List<TextSpan>? richText) =>
       _inner.setRichText(coord, richText);
+
+  @override
+  void moveMerges(CellRange source, CellCoordinate destination) =>
+      _inner.moveMerges(source, destination);
+
+  @override
+  void unmergeCellsInRange(CellRange range) =>
+      _inner.unmergeCellsInRange(range);
 
   @override
   void replicateMerges({

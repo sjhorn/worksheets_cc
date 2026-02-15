@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:worksheets_cc/src/constants.dart';
 import 'package:worksheets_cc/src/models/workbook_model.dart';
 import 'package:worksheets_cc/src/models/sheet_model.dart';
 
@@ -88,8 +89,8 @@ void main() {
     test('creates with default data and controller', () {
       final sheet = SheetModel(name: 'Test');
       expect(sheet.name, 'Test');
-      expect(sheet.rawData.rowCount, 1000);
-      expect(sheet.rawData.columnCount, 26);
+      expect(sheet.rawData.rowCount, defaultRowCount);
+      expect(sheet.rawData.columnCount, defaultColumnCount);
       expect(sheet.customColumnWidths, isEmpty);
       expect(sheet.customRowHeights, isEmpty);
       sheet.dispose();

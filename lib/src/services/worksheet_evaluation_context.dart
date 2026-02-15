@@ -101,7 +101,7 @@ class WorksheetEvaluationContext implements EvaluationContext {
       final epoch = DateTime.utc(1899, 12, 30);
       final date = cv.asDateTime;
       final utcDate = DateTime.utc(date.year, date.month, date.day);
-      return FormulaValue.number(utcDate.difference(epoch).inDays);
+      return FormulaValue.serial(utcDate.difference(epoch).inDays);
     }
     if (cv.isDuration) {
       // Convert to fractional days (Excel convention: 1.0 = 24 hours)

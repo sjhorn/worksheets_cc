@@ -200,19 +200,21 @@ void main() {
     test('captures cell with value, style, and format', () {
       const coord = CellCoordinate(0, 0);
       data.setCell(coord, CellValue.number(42));
-      data.setStyle(coord, const CellStyle(fontSize: 16));
+      data.setStyle(
+          coord, const CellStyle(textAlignment: CellTextAlignment.center));
       data.setFormat(coord, CellFormat.currency);
 
       final snapshot = CellSnapshot.capture(data, coord);
       expect(snapshot.value!.asDouble, 42);
-      expect(snapshot.style!.fontSize, 16);
+      expect(snapshot.style!.textAlignment, CellTextAlignment.center);
       expect(snapshot.format!.type, CellFormatType.currency);
     });
 
     test('applyTo restores cell state', () {
       const coord = CellCoordinate(0, 0);
       data.setCell(coord, CellValue.number(42));
-      data.setStyle(coord, const CellStyle(fontSize: 16));
+      data.setStyle(
+          coord, const CellStyle(textAlignment: CellTextAlignment.center));
 
       final snapshot = CellSnapshot.capture(data, coord);
 
@@ -224,7 +226,7 @@ void main() {
       snapshot.applyTo(data, coord);
 
       expect(data.getCell(coord)!.asDouble, 42);
-      expect(data.getStyle(coord)!.fontSize, 16);
+      expect(data.getStyle(coord)!.textAlignment, CellTextAlignment.center);
     });
   });
 

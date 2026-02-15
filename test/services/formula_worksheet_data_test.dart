@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:worksheet/worksheet.dart';
 import 'package:worksheets_cc/src/services/formula_worksheet_data.dart';
@@ -335,17 +333,17 @@ void main() {
   group('delegation', () {
     test('delegates getStyle to inner', () {
       rawData.setStyle(const CellCoordinate(0, 0),
-          const CellStyle(fontWeight: FontWeight.bold));
+          const CellStyle(textAlignment: CellTextAlignment.right));
       expect(
-          formulaData.getStyle(const CellCoordinate(0, 0))!.fontWeight,
-          FontWeight.bold);
+          formulaData.getStyle(const CellCoordinate(0, 0))!.textAlignment,
+          CellTextAlignment.right);
     });
 
     test('delegates setStyle to inner', () {
       formulaData.setStyle(const CellCoordinate(0, 0),
-          const CellStyle(fontWeight: FontWeight.bold));
-      expect(rawData.getStyle(const CellCoordinate(0, 0))!.fontWeight,
-          FontWeight.bold);
+          const CellStyle(textAlignment: CellTextAlignment.right));
+      expect(rawData.getStyle(const CellCoordinate(0, 0))!.textAlignment,
+          CellTextAlignment.right);
     });
 
     test('delegates rowCount and columnCount', () {

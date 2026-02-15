@@ -222,7 +222,7 @@ class UndoableWorksheetData implements WorksheetData {
   }
 
   @override
-  void smartFill(
+  CellRange? smartFill(
     CellRange range,
     CellCoordinate destination, [
     Cell? Function(CellCoordinate coord, Cell? sourceCell)? valueGenerator,
@@ -234,7 +234,7 @@ class UndoableWorksheetData implements WorksheetData {
       before[coord] = CellSnapshot.capture(sparseData, coord);
     }
 
-    sparseData.smartFill(range, destination, valueGenerator);
+    final result = sparseData.smartFill(range, destination, valueGenerator);
 
     final after = <CellCoordinate, CellSnapshot>{};
     for (final coord in expandedRange.cells) {
@@ -252,6 +252,7 @@ class UndoableWorksheetData implements WorksheetData {
       after: after,
       description: desc,
     ));
+    return result;
   }
 
   @override
@@ -329,6 +330,14 @@ class UndoableWorksheetData implements WorksheetData {
       description: 'Rich text ${coord.toNotation()}',
     ));
   }
+
+  @override
+  void moveMerges(CellRange source, CellCoordinate destination) =>
+      sparseData.moveMerges(source, destination);
+
+  @override
+  void unmergeCellsInRange(CellRange range) =>
+      sparseData.unmergeCellsInRange(range);
 
   @override
   void replicateMerges({

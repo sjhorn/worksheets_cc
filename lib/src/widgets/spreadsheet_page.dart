@@ -216,18 +216,6 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   void _onStyleChanged(CellStyle style) {
     if (_selectedCell == null) return;
 
-    // When editing, apply font/size/color to the inline rich text selection
-    if (_editController.isEditing) {
-      final rtc = _editController.richTextController;
-      if (rtc != null) {
-        if (style.textColor != null) rtc.setColor(style.textColor!);
-        if (style.fontSize != null) rtc.setFontSize(style.fontSize!);
-        if (style.fontFamily != null) rtc.setFontFamily(style.fontFamily!);
-        setState(() {});
-        return;
-      }
-    }
-
     final sheet = _workbook.activeSheet;
     final range = sheet.controller.selectedRange;
 
@@ -247,6 +235,90 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     setState(() {
       _updateSelectedCellInfo();
     });
+  }
+
+  /// Gets the effective [TextStyle] from a cell's rich text spans.
+  /// Returns the style of the first span, or null if no rich text.
+  TextStyle? _getEffectiveTextStyle(CellCoordinate coord) {
+    final sheet = _workbook.activeSheet;
+    final richText = sheet.rawData.getRichText(coord);
+    if (richText != null && richText.isNotEmpty) {
+      return richText.first.style;
+    }
+    return null;
+  }
+
+  /// Applies a [TextStyle] toggle/change to a cell's rich text spans.
+  /// If the cell has no rich text, creates a single span from the cell value.
+  void _applyTextStyleToCell(
+    CellCoordinate coord,
+    TextStyle Function(TextStyle existing) transform,
+  ) {
+    final sheet = _workbook.activeSheet;
+    var richText = sheet.rawData.getRichText(coord);
+    if (richText == null || richText.isEmpty) {
+      // Create a single span from the cell value text
+      final value = sheet.rawData.getCell(coord);
+      final text = value?.rawValue.toString() ?? '';
+      richText = [TextSpan(text: text)];
+    }
+    final updated = richText.map((span) {
+      final existing = span.style ?? const TextStyle();
+      return TextSpan(text: span.text, style: transform(existing));
+    }).toList();
+    sheet.rawData.setRichText(coord, updated);
+  }
+
+  /// Applies a text style change to the selected cell(s) or range.
+  void _applyTextStyleChange(
+      TextStyle Function(TextStyle existing) transform) {
+    if (_selectedCell == null) return;
+    final sheet = _workbook.activeSheet;
+    final range = sheet.controller.selectedRange;
+
+    if (range != null) {
+      sheet.rawData.batchUpdate((batch) {
+        for (final coord in range.cells) {
+          _applyTextStyleToCell(coord, transform);
+        }
+      });
+    } else {
+      _applyTextStyleToCell(_selectedCell!, transform);
+    }
+    setState(_updateSelectedCellInfo);
+  }
+
+  void _onFontFamilyChanged(String family) {
+    if (_selectedCell == null) return;
+    if (_editController.isEditing) {
+      _editController.richTextController?.setFontFamily(family);
+      setState(() {});
+      return;
+    }
+    _applyTextStyleChange(
+        (ts) => ts.copyWith(fontFamily: family));
+  }
+
+  void _onFontSizeChanged(double size) {
+    if (_selectedCell == null) return;
+    if (_editController.isEditing) {
+      _editController.richTextController?.setFontSize(size);
+      setState(() {});
+      return;
+    }
+    _applyTextStyleChange(
+        (ts) => ts.copyWith(fontSize: size));
+  }
+
+  void _onTextColorChanged(Color color) {
+    if (_selectedCell == null) return;
+    if (_editController.isEditing) {
+      _editController.richTextController?.setColor(color);
+      setState(() {});
+      return;
+    }
+    _applyTextStyleChange(
+        (ts) => ts.copyWith(color: color));
   }
 
   void _onFormatChanged(CellFormat format) {
@@ -341,13 +413,11 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       setState(() {});
       return;
     }
-    final sheet = _workbook.activeSheet;
-    final existing =
-        sheet.rawData.getStyle(_selectedCell!) ?? const CellStyle();
-    final newWeight = existing.fontWeight == FontWeight.bold
-        ? FontWeight.normal
-        : FontWeight.bold;
-    _onStyleChanged(CellStyle(fontWeight: newWeight));
+    final ts = _getEffectiveTextStyle(_selectedCell!);
+    final isBold = ts?.fontWeight == FontWeight.bold;
+    _applyTextStyleChange((existing) => existing.copyWith(
+          fontWeight: isBold ? FontWeight.normal : FontWeight.bold,
+        ));
   }
 
   void _toggleItalic() {
@@ -357,13 +427,11 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       setState(() {});
       return;
     }
-    final sheet = _workbook.activeSheet;
-    final existing =
-        sheet.rawData.getStyle(_selectedCell!) ?? const CellStyle();
-    final newStyle = existing.fontStyle == FontStyle.italic
-        ? FontStyle.normal
-        : FontStyle.italic;
-    _onStyleChanged(CellStyle(fontStyle: newStyle));
+    final ts = _getEffectiveTextStyle(_selectedCell!);
+    final isItalic = ts?.fontStyle == FontStyle.italic;
+    _applyTextStyleChange((existing) => existing.copyWith(
+          fontStyle: isItalic ? FontStyle.normal : FontStyle.italic,
+        ));
   }
 
   void _toggleUnderline() {
@@ -373,9 +441,16 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       setState(() {});
       return;
     }
-    _onStyleChanged(
-      CellStyle(underline: !(_selectedCellStyle?.underline == true)),
-    );
+    final ts = _getEffectiveTextStyle(_selectedCell!);
+    final hasUnderline =
+        ts?.decoration?.contains(TextDecoration.underline) == true;
+    _applyTextStyleChange((existing) {
+      final current = existing.decoration;
+      final newDecoration = hasUnderline
+          ? _removeDecoration(current, TextDecoration.underline)
+          : _addDecoration(current, TextDecoration.underline);
+      return existing.copyWith(decoration: newDecoration);
+    });
   }
 
   void _toggleStrikethrough() {
@@ -385,9 +460,38 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       setState(() {});
       return;
     }
-    _onStyleChanged(
-      CellStyle(strikethrough: !(_selectedCellStyle?.strikethrough == true)),
-    );
+    final ts = _getEffectiveTextStyle(_selectedCell!);
+    final hasStrikethrough =
+        ts?.decoration?.contains(TextDecoration.lineThrough) == true;
+    _applyTextStyleChange((existing) {
+      final current = existing.decoration;
+      final newDecoration = hasStrikethrough
+          ? _removeDecoration(current, TextDecoration.lineThrough)
+          : _addDecoration(current, TextDecoration.lineThrough);
+      return existing.copyWith(decoration: newDecoration);
+    });
+  }
+
+  static TextDecoration _addDecoration(
+      TextDecoration? current, TextDecoration add) {
+    if (current == null || current == TextDecoration.none) return add;
+    return TextDecoration.combine([current, add]);
+  }
+
+  static TextDecoration _removeDecoration(
+      TextDecoration? current, TextDecoration remove) {
+    if (current == null) return TextDecoration.none;
+    final decorations = <TextDecoration>[];
+    for (final d in [
+      TextDecoration.underline,
+      TextDecoration.lineThrough,
+      TextDecoration.overline,
+    ]) {
+      if (d != remove && current.contains(d)) decorations.add(d);
+    }
+    return decorations.isEmpty
+        ? TextDecoration.none
+        : TextDecoration.combine(decorations);
   }
 
   bool get _isCellMerged {
@@ -540,6 +644,9 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
             FormattingToolbar(
               currentStyle: _selectedCellStyle,
               currentFormat: _selectedCellFormat,
+              currentTextStyle: _selectedCell != null
+                  ? _getEffectiveTextStyle(_selectedCell!)
+                  : null,
               onStyleChanged: _onStyleChanged,
               onFormatChanged: _onFormatChanged,
               onClearFormatting: _onClearFormatting,
@@ -561,6 +668,9 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
               onToggleItalic: _toggleItalic,
               onToggleUnderline: _toggleUnderline,
               onToggleStrikethrough: _toggleStrikethrough,
+              onFontFamilyChanged: _onFontFamilyChanged,
+              onFontSizeChanged: _onFontSizeChanged,
+              onTextColorChanged: _onTextColorChanged,
               editController: _editController,
               onMergeCells: _onMergeCells,
               hasRangeSelected: _hasRangeSelected,
