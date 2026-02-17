@@ -997,16 +997,30 @@ class _SelectionStats extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            VerticalDivider(
+              width: 1,
+              thickness: 1,
+              color: AppColors.border(brightness),
+            ),
             for (final (label, value) in stats) ...[
-              InkWell(
-                onTap: () => _copyValue(context, label, value),
-                borderRadius: BorderRadius.circular(4),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                  child: Text(
-                    '$label: ${_formatValue(value)}',
-                    style: textStyle,
+              Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  onTap: () => _copyValue(context, label, value),
+                  borderRadius: BorderRadius.circular(4),
+                  hoverColor: brightness == Brightness.dark
+                      ? Colors.white12
+                      : Colors.black.withValues(alpha: 0.08),
+                  splashColor: brightness == Brightness.dark
+                      ? Colors.white24
+                      : Colors.black.withValues(alpha: 0.12),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    child: Text(
+                      '$label: ${_formatValue(value)}',
+                      style: textStyle,
+                    ),
                   ),
                 ),
               ),
@@ -1018,12 +1032,10 @@ class _SelectionStats extends StatelessWidget {
   }
 
   List<double> _collectNumericValues() {
-    final cells = <CellCoordinate>[];
-    if (selectedRange != null) {
-      cells.addAll(selectedRange!.cells);
-    } else if (selectedCell != null) {
-      cells.add(selectedCell!);
-    }
+    // Only compute stats when a multi-cell range is selected
+    if (selectedRange == null) return [];
+    final cells = selectedRange!.cells.toList();
+    if (cells.length <= 1) return [];
 
     final values = <double>[];
     for (final coord in cells) {
@@ -1054,14 +1066,7 @@ class _SelectionStats extends StatelessWidget {
   }
 
   void _copyValue(BuildContext context, String label, double value) {
-    final text = _formatValue(value);
-    Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$label ($text) copied to clipboard'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    Clipboard.setData(ClipboardData(text: _formatValue(value)));
   }
 }
 
