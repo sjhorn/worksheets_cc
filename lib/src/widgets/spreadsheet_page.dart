@@ -41,6 +41,13 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   CellStyle? _selectedCellStyle;
   CellFormat? _selectedCellFormat;
 
+  /// Captured formatting for paint format mode.
+  /// Holds (CellStyle, CellFormat, TextStyle) from the source cell.
+  ({CellStyle? style, CellFormat? format, TextStyle? textStyle})?
+      _paintFormatSource;
+
+  bool get _isPaintFormatActive => _paintFormatSource != null;
+
   Color _borderPenColor = const Color(0xFF000000);
   BorderLineOption _borderPenLineOption = BorderCatalog.lineOptions.first;
   List<String> _recentFonts = [];
@@ -158,6 +165,15 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     setState(() {
       _selectedCell = cell;
       _updateSelectedCellInfo();
+    });
+  }
+
+  void _onPointerUpDuringPaintFormat(PointerUpEvent _) {
+    if (!_isPaintFormatActive || _selectedCell == null) return;
+    // Apply after the frame so the controller's selection is finalized
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_isPaintFormatActive) return;
+      _applyPaintFormat(_selectedCell!);
     });
   }
 
@@ -363,6 +379,65 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     }
 
     setState(() {
+      _updateSelectedCellInfo();
+    });
+  }
+
+  void _onPaintFormat() {
+    if (_selectedCell == null) return;
+    final sheet = _workbook.activeSheet;
+    final coord = _selectedCell!;
+    setState(() {
+      _paintFormatSource = (
+        style: sheet.rawData.getStyle(coord),
+        format: sheet.rawData.getFormat(coord),
+        textStyle: _getEffectiveTextStyle(coord),
+      );
+    });
+  }
+
+  void _applyPaintFormat(CellCoordinate target) {
+    final source = _paintFormatSource;
+    if (source == null) return;
+
+    final sheet = _workbook.activeSheet;
+    final range = sheet.controller.selectedRange;
+    final targets =
+        range != null ? range.cells.toList() : [target];
+
+    sheet.rawData.batchUpdate((batch) {
+      for (final coord in targets) {
+        if (source.style != null) {
+          batch.setStyle(coord, source.style!);
+        }
+        if (source.format != null) {
+          batch.setFormat(coord, source.format!);
+        }
+        if (source.textStyle != null) {
+          // Apply source text style to target, preserving text content
+          var richText = sheet.rawData.getRichText(coord);
+          if (richText == null || richText.isEmpty) {
+            final value = sheet.rawData.getCell(coord);
+            final text = value?.rawValue.toString() ?? '';
+            if (text.isNotEmpty) {
+              richText = [TextSpan(text: text)];
+            }
+          }
+          if (richText != null && richText.isNotEmpty) {
+            final updated = richText
+                .map((span) => TextSpan(
+                      text: span.text,
+                      style: source.textStyle,
+                    ))
+                .toList();
+            batch.setRichText(coord, updated);
+          }
+        }
+      }
+    });
+
+    setState(() {
+      _paintFormatSource = null;
       _updateSelectedCellInfo();
     });
   }
@@ -675,32 +750,44 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
               onMergeCells: _onMergeCells,
               hasRangeSelected: _hasRangeSelected,
               isCellMerged: _isCellMerged,
+              isPaintFormatActive: _isPaintFormatActive,
+              onPaintFormat: _onPaintFormat,
             ),
             Expanded(
-              child: WorksheetTheme(
-                data: widget.isDarkMode
-                    ? const WorksheetThemeData(
-                        defaultColumnWidth: 100.0,
-                        defaultRowHeight: 21.0,
-                        headerStyle: HeaderStyle.darkStyle,
-                      )
-                    : const WorksheetThemeData(
-                        defaultColumnWidth: 100.0,
-                        defaultRowHeight: 21.0,
-                      ),
-                child: Worksheet(
-                  key: ValueKey(sheet.name),
-                  data: sheet.formulaData,
-                  controller: sheet.controller,
-                  editController: _editController,
-                  dateParser: AnyDate(),
-                  rowCount: defaultRowCount,
-                  columnCount: defaultColumnCount,
-                  customColumnWidths: sheet.customColumnWidths,
-                  customRowHeights: sheet.customRowHeights,
-                  onCellTap: _onCellTap,
-                  onResizeColumn: _onResizeColumn,
-                  onResizeRow: _onResizeRow,
+              child: Listener(
+                onPointerUp: _isPaintFormatActive
+                    ? _onPointerUpDuringPaintFormat
+                    : null,
+                child: MouseRegion(
+                  cursor: _isPaintFormatActive
+                      ? SystemMouseCursors.copy
+                      : MouseCursor.defer,
+                  child: WorksheetTheme(
+                    data: widget.isDarkMode
+                        ? const WorksheetThemeData(
+                            defaultColumnWidth: 100.0,
+                            defaultRowHeight: 21.0,
+                            headerStyle: HeaderStyle.darkStyle,
+                          )
+                        : const WorksheetThemeData(
+                            defaultColumnWidth: 100.0,
+                            defaultRowHeight: 21.0,
+                          ),
+                    child: Worksheet(
+                      key: ValueKey(sheet.name),
+                      data: sheet.formulaData,
+                      controller: sheet.controller,
+                      editController: _editController,
+                      dateParser: AnyDate(),
+                      rowCount: defaultRowCount,
+                      columnCount: defaultColumnCount,
+                      customColumnWidths: sheet.customColumnWidths,
+                      customRowHeights: sheet.customRowHeights,
+                      onCellTap: _onCellTap,
+                      onResizeColumn: _onResizeColumn,
+                      onResizeRow: _onResizeRow,
+                    ),
+                  ),
                 ),
               ),
             ),
