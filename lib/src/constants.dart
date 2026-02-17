@@ -7,7 +7,7 @@ const String defaultSheetName = 'Sheet1';
 
 const String appVersion = '1.6.3';
 const Map<String, String> dependencyVersions = {
-  'worksheet': '3.0.0',
+  'worksheet': '3.0.1',
   'worksheet_formula': '1.3.0',
   'material_symbols_icons': '4.2906.0',
   'google_fonts': '8.0.0',
