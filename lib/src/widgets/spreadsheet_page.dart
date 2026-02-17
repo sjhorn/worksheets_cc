@@ -926,6 +926,11 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       child: Row(
         children: [
           Expanded(child: SheetTabs(workbook: _workbook)),
+          _SelectionStats(
+            formulaData: sheet.formulaData,
+            selectedRange: sheet.controller.selectedRange,
+            selectedCell: _selectedCell,
+          ),
           if (typeName.isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -942,6 +947,119 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
             onZoomChanged: () => setState(() {}),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SelectionStats extends StatelessWidget {
+  const _SelectionStats({
+    required this.formulaData,
+    required this.selectedRange,
+    required this.selectedCell,
+  });
+
+  final WorksheetData formulaData;
+  final CellRange? selectedRange;
+  final CellCoordinate? selectedCell;
+
+  static final _epoch = DateTime.utc(1899, 12, 30);
+
+  @override
+  Widget build(BuildContext context) {
+    final values = _collectNumericValues();
+    if (values.isEmpty) return const SizedBox.shrink();
+
+    final count = values.length;
+    final sum = values.reduce((a, b) => a + b);
+    final avg = sum / count;
+    final min = values.reduce((a, b) => a < b ? a : b);
+    final max = values.reduce((a, b) => a > b ? a : b);
+
+    final brightness = Theme.of(context).brightness;
+    final textStyle = TextStyle(
+      fontSize: 12,
+      color: AppColors.statusBarText(brightness),
+    );
+
+    final stats = [
+      ('Average', avg),
+      ('Count', count.toDouble()),
+      ('Sum', sum),
+      ('Min', min),
+      ('Max', max),
+    ];
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 500),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final (label, value) in stats) ...[
+              InkWell(
+                onTap: () => _copyValue(context, label, value),
+                borderRadius: BorderRadius.circular(4),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  child: Text(
+                    '$label: ${_formatValue(value)}',
+                    style: textStyle,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<double> _collectNumericValues() {
+    final cells = <CellCoordinate>[];
+    if (selectedRange != null) {
+      cells.addAll(selectedRange!.cells);
+    } else if (selectedCell != null) {
+      cells.add(selectedCell!);
+    }
+
+    final values = <double>[];
+    for (final coord in cells) {
+      final cv = formulaData.getCell(coord);
+      if (cv == null) continue;
+      if (cv.isNumber) {
+        values.add(cv.asDouble);
+      } else if (cv.isDate) {
+        final date = cv.asDateTime;
+        final utcDate = DateTime.utc(date.year, date.month, date.day);
+        values.add(utcDate.difference(_epoch).inDays.toDouble());
+      }
+    }
+    return values;
+  }
+
+  String _formatValue(double value) {
+    if (value == value.truncateToDouble()) {
+      return value.toInt().toString();
+    }
+    // Up to 2 decimal places, trim trailing zeros
+    final s = value.toStringAsFixed(2);
+    if (s.contains('.')) {
+      final trimmed = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+      return trimmed;
+    }
+    return s;
+  }
+
+  void _copyValue(BuildContext context, String label, double value) {
+    final text = _formatValue(value);
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label ($text) copied to clipboard'),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
