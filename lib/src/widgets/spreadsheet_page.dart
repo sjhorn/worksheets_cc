@@ -10,6 +10,7 @@ import '../models/border_catalog.dart';
 import '../models/merge_catalog.dart';
 import '../models/workbook_model.dart';
 import '../services/persistence_service.dart';
+import '../services/print_service.dart';
 import '../services/undo_manager.dart';
 import 'formula_bar.dart';
 import 'formatting_toolbar.dart';
@@ -396,6 +397,10 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     });
   }
 
+  void _onPrint() {
+    PrintService.printSheet(_workbook.activeSheet);
+  }
+
   void _applyPaintFormat(CellCoordinate target) {
     final source = _paintFormatSource;
     if (source == null) return;
@@ -752,6 +757,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
               isCellMerged: _isCellMerged,
               isPaintFormatActive: _isPaintFormatActive,
               onPaintFormat: _onPaintFormat,
+              onPrint: _onPrint,
             ),
             Expanded(
               child: Listener(

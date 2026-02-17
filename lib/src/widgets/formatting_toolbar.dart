@@ -43,6 +43,7 @@ class FormattingToolbar extends StatelessWidget {
     this.isCellMerged = false,
     this.isPaintFormatActive = false,
     this.onPaintFormat,
+    this.onPrint,
   });
 
   final CellStyle? currentStyle;
@@ -77,6 +78,7 @@ class FormattingToolbar extends StatelessWidget {
   final bool isCellMerged;
   final bool isPaintFormatActive;
   final VoidCallback? onPaintFormat;
+  final VoidCallback? onPrint;
 
   @override
   Widget build(BuildContext context) {
@@ -127,6 +129,11 @@ class FormattingToolbar extends StatelessWidget {
               icon: Icons.format_paint,
               isActive: isPaintFormatActive,
               onPressed: onPaintFormat!,
+            ),
+          if (onPrint != null)
+            _ToolbarButton(
+              icon: Icons.print,
+              onPressed: onPrint!,
             ),
           const VerticalDivider(width: 16, indent: 8, endIndent: 8),
           _ToolbarButton(
