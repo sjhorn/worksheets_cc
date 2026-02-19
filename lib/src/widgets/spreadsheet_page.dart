@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:worksheet/worksheet.dart';
 
 import '../constants.dart';
 import '../models/sheet_model.dart';
 import '../models/border_catalog.dart';
+import '../models/font_catalog.dart';
 import '../models/merge_catalog.dart';
 import '../models/workbook_model.dart';
 import '../services/persistence_service.dart';
@@ -305,21 +307,49 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     setState(_updateSelectedCellInfo);
   }
 
+  /// Resolves a Google Fonts family name to the registered variant name.
+  /// System fonts pass through unchanged.
+  String _resolveGoogleFont(String family,
+      {FontWeight? weight, FontStyle? fontStyle}) {
+    if (!FontCatalog.isGoogleFont(family)) return family;
+    final resolved = GoogleFonts.getFont(
+      family,
+      fontWeight: weight ?? FontWeight.normal,
+      fontStyle: fontStyle ?? FontStyle.normal,
+    );
+    return resolved.fontFamily!;
+  }
+
   void _onFontFamilyChanged(String family) {
     if (_selectedCell == null) return;
     if (_editController.isEditing) {
-      _editController.richTextController?.setFontFamily(family);
+      final resolved = _resolveGoogleFont(family);
+      _editController.richTextController?.setFontFamily(resolved);
+      _editController.requestEditorFocus();
       setState(() {});
       return;
     }
-    _applyTextStyleChange(
-        (ts) => ts.copyWith(fontFamily: family));
+    _applyTextStyleChange((ts) {
+      if (!FontCatalog.isGoogleFont(family)) {
+        return ts.copyWith(fontFamily: family);
+      }
+      final resolvedStyle = GoogleFonts.getFont(
+        family,
+        fontWeight: ts.fontWeight ?? FontWeight.normal,
+        fontStyle: ts.fontStyle ?? FontStyle.normal,
+      );
+      return ts.copyWith(
+        fontFamily: resolvedStyle.fontFamily,
+        fontFamilyFallback: resolvedStyle.fontFamilyFallback,
+      );
+    });
   }
 
   void _onFontSizeChanged(double size) {
     if (_selectedCell == null) return;
     if (_editController.isEditing) {
       _editController.richTextController?.setFontSize(size);
+      _editController.requestEditorFocus();
       setState(() {});
       return;
     }
@@ -331,6 +361,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     if (_selectedCell == null) return;
     if (_editController.isEditing) {
       _editController.richTextController?.setColor(color);
+      _editController.requestEditorFocus();
       setState(() {});
       return;
     }
@@ -490,6 +521,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     if (_selectedCell == null) return;
     if (_editController.isEditing) {
       _editController.toggleBold();
+      _editController.requestEditorFocus();
       setState(() {});
       return;
     }
@@ -504,6 +536,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     if (_selectedCell == null) return;
     if (_editController.isEditing) {
       _editController.toggleItalic();
+      _editController.requestEditorFocus();
       setState(() {});
       return;
     }
@@ -518,6 +551,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     if (_selectedCell == null) return;
     if (_editController.isEditing) {
       _editController.toggleUnderline();
+      _editController.requestEditorFocus();
       setState(() {});
       return;
     }
@@ -537,6 +571,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     if (_selectedCell == null) return;
     if (_editController.isEditing) {
       _editController.toggleStrikethrough();
+      _editController.requestEditorFocus();
       setState(() {});
       return;
     }
