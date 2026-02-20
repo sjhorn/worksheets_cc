@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:a1/a1.dart';
 import 'package:flutter/painting.dart';
 import 'package:worksheet/worksheet.dart';
 import 'package:worksheet_formula/worksheet_formula.dart';
