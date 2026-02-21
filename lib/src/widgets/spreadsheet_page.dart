@@ -903,6 +903,13 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Center(
+              child: Image.asset(
+                'assets/worksheet.png',
+                filterQuality: FilterQuality.medium,
+              ),
+            ),
+            const SizedBox(height: 16),
             Text('Version: $appVersion'),
             const SizedBox(height: 12),
             const Text('Dependencies',
