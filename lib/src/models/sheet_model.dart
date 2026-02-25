@@ -3,17 +3,14 @@ import 'package:worksheet_formula/worksheet_formula.dart';
 
 import '../constants.dart';
 import '../services/formula_worksheet_data.dart';
-import '../services/undo_manager.dart';
-import '../services/undoable_worksheet_data.dart';
 
 class SheetModel {
   SheetModel({
     required this.name,
     SparseWorksheetData? sparseData,
-    UndoManager? undoManager,
-    UndoableWorksheetData? rawData,
     FormulaWorksheetData? formulaData,
     WorksheetController? controller,
+    UndoManager? undoManager,
     Map<int, double>? customColumnWidths,
     Map<int, double>? customRowHeights,
     FormulaEngine? formulaEngine,
@@ -23,21 +20,19 @@ class SheetModel {
               columnCount: defaultColumnCount,
             ),
         undoManager = undoManager ?? UndoManager(),
-        controller = controller ?? WorksheetController(),
         customColumnWidths = customColumnWidths ?? {},
         customRowHeights = customRowHeights ?? {} {
-    this.rawData =
-        rawData ?? UndoableWorksheetData(this.sparseData, this.undoManager);
-    this.formulaData =
-        formulaData ?? FormulaWorksheetData(this.rawData, engine: formulaEngine);
+    this.controller =
+        controller ?? WorksheetController(undoManager: this.undoManager);
+    this.formulaData = formulaData ??
+        FormulaWorksheetData(this.sparseData, engine: formulaEngine);
   }
 
   final String name;
   final SparseWorksheetData sparseData;
   final UndoManager undoManager;
-  late final UndoableWorksheetData rawData;
   late final FormulaWorksheetData formulaData;
-  final WorksheetController controller;
+  late final WorksheetController controller;
   final Map<int, double> customColumnWidths;
   final Map<int, double> customRowHeights;
 
@@ -46,7 +41,6 @@ class SheetModel {
       name: newName,
       sparseData: sparseData,
       undoManager: undoManager,
-      rawData: rawData,
       formulaData: formulaData,
       controller: controller,
       customColumnWidths: customColumnWidths,
@@ -57,7 +51,6 @@ class SheetModel {
   void dispose() {
     controller.dispose();
     formulaData.dispose();
-    rawData.dispose();
     sparseData.dispose();
   }
 }

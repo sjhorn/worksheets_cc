@@ -1,4 +1,4 @@
-import 'package:worksheet/worksheet.dart';
+import 'package:worksheet/worksheet.dart' hide FormulaFunction;
 import 'package:worksheet_formula/worksheet_formula.dart';
 
 /// Concrete [EvaluationContext] that reads cell data from a [WorksheetData].

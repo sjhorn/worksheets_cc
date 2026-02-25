@@ -9,11 +9,11 @@ import '../constants.dart';
 import '../models/sheet_model.dart';
 import '../models/border_catalog.dart';
 import '../models/font_catalog.dart';
+import '../models/formula_catalog.dart';
 import '../models/merge_catalog.dart';
 import '../models/workbook_model.dart';
 import '../services/persistence_service.dart';
 import '../services/print_service.dart';
-import '../services/undo_manager.dart';
 import 'formula_bar.dart';
 import 'formatting_toolbar.dart';
 import 'sheet_tabs.dart';
@@ -56,6 +56,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   List<String> _recentFonts = [];
 
   late EditController _editController;
+  late final FormulaAutocompleteConfig _autocompleteConfig;
   StreamSubscription<DataChangeEvent>? _dataChangeSub;
   FocusNode? _worksheetFocusNode;
 
@@ -66,8 +67,14 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     super.initState();
     _editController = EditController();
     _editController.addListener(_onEditControllerChanged);
+    _autocompleteConfig = FormulaAutocompleteConfig(
+      functions: buildAutocompleteFunctions(
+        _workbook.activeSheet.formulaData.engine.functions,
+      ),
+    );
     _workbook.addListener(_onWorkbookChanged);
     _workbook.activeSheet.controller.addListener(_onControllerChanged);
+    _workbook.activeSheet.undoManager.addListener(_onUndoManagerChanged);
     _dataChangeSub = _workbook.activeSheet.formulaData.changes.listen(
       _onDataChange,
     );
@@ -78,6 +85,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   void dispose() {
     _dataChangeSub?.cancel();
     _editController.removeListener(_onEditControllerChanged);
+    _workbook.activeSheet.undoManager.removeListener(_onUndoManagerChanged);
     _workbook.activeSheet.controller.removeListener(_onControllerChanged);
     _workbook.removeListener(_onWorkbookChanged);
     _editController.dispose();
@@ -101,12 +109,18 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     });
   }
 
+  void _onUndoManagerChanged() {
+    setState(() {});
+  }
+
   void _onWorkbookChanged() {
-    // Re-attach controller listener when active sheet changes
+    // Re-attach controller and undo manager listeners when active sheet changes
     for (final sheet in _workbook.sheets) {
       sheet.controller.removeListener(_onControllerChanged);
+      sheet.undoManager.removeListener(_onUndoManagerChanged);
     }
     _workbook.activeSheet.controller.addListener(_onControllerChanged);
+    _workbook.activeSheet.undoManager.addListener(_onUndoManagerChanged);
 
     // Re-subscribe to data changes for the new active sheet
     _dataChangeSub?.cancel();
@@ -143,10 +157,10 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
     final sheet = _workbook.activeSheet;
     // Show raw value in formula bar (so formulas display as "=SUM(...)")
-    _selectedCellValue = sheet.rawData.getCell(_selectedCell!);
+    _selectedCellValue = sheet.sparseData.getCell(_selectedCell!);
     _evaluatedCellValue = sheet.formulaData.getCell(_selectedCell!);
-    _selectedCellStyle = sheet.rawData.getStyle(_selectedCell!);
-    _selectedCellFormat = sheet.rawData.getFormat(_selectedCell!);
+    _selectedCellStyle = sheet.sparseData.getStyle(_selectedCell!);
+    _selectedCellFormat = sheet.sparseData.getFormat(_selectedCell!);
   }
 
   void _onDataChange(DataChangeEvent event) {
@@ -193,12 +207,10 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
   /// Auto-sets alignment on [cell] when textAlignment is null.
   ///
-  /// Writes directly to sparseData so the change is captured in the
-  /// same undo snapshot that UndoableWorksheetData.setCell is building
-  /// (the after-snapshot hasn't been taken yet when our listener fires).
+  /// Writes directly to sparseData so the alignment tracks the value type.
   void _maybeAutoAlign(CellCoordinate cell) {
     final sheet = _workbook.activeSheet;
-    final currentStyle = sheet.rawData.getStyle(cell);
+    final currentStyle = sheet.sparseData.getStyle(cell);
     // Use evaluated value so formulas that produce numbers/dates
     // get the correct alignment (e.g. =C4+1 → date → right).
     final value = sheet.formulaData.getCell(cell);
@@ -226,7 +238,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       {CellFormat? detectedFormat}) {
     final sheet = _workbook.activeSheet;
     sheet.formulaData.setCell(cell, value);
-    if (detectedFormat != null && sheet.rawData.getFormat(cell) == null) {
+    if (detectedFormat != null && sheet.sparseData.getFormat(cell) == null) {
       sheet.sparseData.setFormat(cell, detectedFormat);
     }
     setState(_updateSelectedCellInfo);
@@ -239,16 +251,16 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     final range = sheet.controller.selectedRange;
 
     if (range != null) {
-      sheet.rawData.batchUpdate((batch) {
+      sheet.formulaData.batchUpdate((batch) {
         for (final coord in range.cells) {
-          final existing = sheet.rawData.getStyle(coord) ?? const CellStyle();
+          final existing = sheet.formulaData.getStyle(coord) ?? const CellStyle();
           batch.setStyle(coord, existing.merge(style));
         }
       });
     } else {
       final existing =
-          sheet.rawData.getStyle(_selectedCell!) ?? const CellStyle();
-      sheet.rawData.setStyle(_selectedCell!, existing.merge(style));
+          sheet.formulaData.getStyle(_selectedCell!) ?? const CellStyle();
+      sheet.formulaData.setStyle(_selectedCell!, existing.merge(style));
     }
 
     setState(() {
@@ -260,7 +272,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
   /// Returns the style of the first span, or null if no rich text.
   TextStyle? _getEffectiveTextStyle(CellCoordinate coord) {
     final sheet = _workbook.activeSheet;
-    final richText = sheet.rawData.getRichText(coord);
+    final richText = sheet.formulaData.getRichText(coord);
     if (richText != null && richText.isNotEmpty) {
       return richText.first.style;
     }
@@ -274,10 +286,10 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     TextStyle Function(TextStyle existing) transform,
   ) {
     final sheet = _workbook.activeSheet;
-    var richText = sheet.rawData.getRichText(coord);
+    var richText = sheet.formulaData.getRichText(coord);
     if (richText == null || richText.isEmpty) {
       // Create a single span from the cell value text
-      final value = sheet.rawData.getCell(coord);
+      final value = sheet.sparseData.getCell(coord);
       final text = value?.rawValue.toString() ?? '';
       richText = [TextSpan(text: text)];
     }
@@ -285,7 +297,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       final existing = span.style ?? const TextStyle();
       return TextSpan(text: span.text, style: transform(existing));
     }).toList();
-    sheet.rawData.setRichText(coord, updated);
+    sheet.formulaData.setRichText(coord, updated);
   }
 
   /// Applies a text style change to the selected cell(s) or range.
@@ -296,7 +308,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     final range = sheet.controller.selectedRange;
 
     if (range != null) {
-      sheet.rawData.batchUpdate((batch) {
+      sheet.formulaData.batchUpdate((batch) {
         for (final coord in range.cells) {
           _applyTextStyleToCell(coord, transform);
         }
@@ -376,13 +388,13 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     final range = sheet.controller.selectedRange;
 
     if (range != null) {
-      sheet.rawData.batchUpdate((batch) {
+      sheet.formulaData.batchUpdate((batch) {
         for (final coord in range.cells) {
           batch.setFormat(coord, format);
         }
       });
     } else {
-      sheet.rawData.setFormat(_selectedCell!, format);
+      sheet.formulaData.setFormat(_selectedCell!, format);
     }
 
     setState(() {
@@ -397,7 +409,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     final range = sheet.controller.selectedRange;
 
     if (range != null) {
-      sheet.rawData.batchUpdate((batch) {
+      sheet.formulaData.batchUpdate((batch) {
         batch.clearFormats(range);
         batch.clearStyles(range);
         for (final coord in range.cells) {
@@ -405,9 +417,9 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
         }
       });
     } else {
-      sheet.rawData.setFormat(_selectedCell!, null);
-      sheet.rawData.setStyle(_selectedCell!, null);
-      sheet.rawData.setRichText(_selectedCell!, null);
+      sheet.formulaData.setFormat(_selectedCell!, null);
+      sheet.formulaData.setStyle(_selectedCell!, null);
+      sheet.formulaData.setRichText(_selectedCell!, null);
     }
 
     setState(() {
@@ -421,8 +433,8 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     final coord = _selectedCell!;
     setState(() {
       _paintFormatSource = (
-        style: sheet.rawData.getStyle(coord),
-        format: sheet.rawData.getFormat(coord),
+        style: sheet.formulaData.getStyle(coord),
+        format: sheet.formulaData.getFormat(coord),
         textStyle: _getEffectiveTextStyle(coord),
       );
     });
@@ -441,7 +453,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     final targets =
         range != null ? range.cells.toList() : [target];
 
-    sheet.rawData.batchUpdate((batch) {
+    sheet.formulaData.batchUpdate((batch) {
       for (final coord in targets) {
         if (source.style != null) {
           batch.setStyle(coord, source.style!);
@@ -451,9 +463,9 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
         }
         if (source.textStyle != null) {
           // Apply source text style to target, preserving text content
-          var richText = sheet.rawData.getRichText(coord);
+          var richText = sheet.formulaData.getRichText(coord);
           if (richText == null || richText.isEmpty) {
-            final value = sheet.rawData.getCell(coord);
+            final value = sheet.sparseData.getCell(coord);
             final text = value?.rawValue.toString() ?? '';
             if (text.isNotEmpty) {
               richText = [TextSpan(text: text)];
@@ -499,7 +511,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
           _selectedCell!.column,
         );
 
-    sheet.rawData.batchUpdate((batch) {
+    sheet.formulaData.batchUpdate((batch) {
       for (final coord in range.cells) {
         final borders = BorderCatalog.bordersForCell(
           preset, coord, range,
@@ -507,7 +519,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
           borderWidth: _borderPenLineOption.width,
           borderLineStyle: _borderPenLineOption.lineStyle,
         );
-        final existing = sheet.rawData.getStyle(coord) ?? const CellStyle();
+        final existing = sheet.formulaData.getStyle(coord) ?? const CellStyle();
         batch.setStyle(coord, existing.copyWith(borders: borders));
       }
     });
@@ -611,7 +623,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
   bool get _isCellMerged {
     if (_selectedCell == null) return false;
-    return _workbook.activeSheet.rawData.mergedCells.isMerged(_selectedCell!);
+    return _workbook.activeSheet.formulaData.mergedCells.isMerged(_selectedCell!);
   }
 
   bool get _hasRangeSelected {
@@ -626,13 +638,13 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       case MergeType.mergeAll:
         final range = sheet.controller.selectedRange;
         if (range != null) {
-          sheet.rawData.mergeCells(range);
+          sheet.formulaData.mergeCells(range);
         }
       case MergeType.mergeVertically:
         final range = sheet.controller.selectedRange;
         if (range != null) {
           for (var col = range.startColumn; col <= range.endColumn; col++) {
-            sheet.rawData.mergeCells(
+            sheet.formulaData.mergeCells(
               CellRange(range.startRow, col, range.endRow, col),
             );
           }
@@ -641,14 +653,14 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
         final range = sheet.controller.selectedRange;
         if (range != null) {
           for (var row = range.startRow; row <= range.endRow; row++) {
-            sheet.rawData.mergeCells(
+            sheet.formulaData.mergeCells(
               CellRange(row, range.startColumn, row, range.endColumn),
             );
           }
         }
       case MergeType.unmerge:
         if (_selectedCell != null) {
-          sheet.rawData.unmergeCells(_selectedCell!);
+          sheet.formulaData.unmergeCells(_selectedCell!);
         }
     }
 
@@ -656,62 +668,17 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     setState(_updateSelectedCellInfo);
   }
 
-  void _onResizeColumn(int column, double newWidth) {
-    final sheet = _workbook.activeSheet;
-    final oldWidth = sheet.customColumnWidths[column];
-    sheet.customColumnWidths[column] = newWidth;
-    // Extract column letter from notation (e.g. "A1" → "A")
-    final colLetter = CellCoordinate(
-      0,
-      column,
-    ).toNotation().replaceAll(RegExp(r'\d+$'), '');
-    sheet.undoManager.push(
-      ResizeColumnAction(
-        columnWidths: sheet.customColumnWidths,
-        column: column,
-        oldWidth: oldWidth,
-        newWidth: newWidth,
-        description: 'Resize Column $colLetter',
-      ),
-    );
-    widget.persistenceService.scheduleSave(_workbook);
-    setState(() {});
-  }
-
-  void _onResizeRow(int row, double newHeight) {
-    final sheet = _workbook.activeSheet;
-    final oldHeight = sheet.customRowHeights[row];
-    sheet.customRowHeights[row] = newHeight;
-    sheet.undoManager.push(
-      ResizeRowAction(
-        rowHeights: sheet.customRowHeights,
-        row: row,
-        oldHeight: oldHeight,
-        newHeight: newHeight,
-        description: 'Resize Row ${row + 1}',
-      ),
-    );
-    widget.persistenceService.scheduleSave(_workbook);
-    setState(() {});
-  }
-
-  void _undoN(int n) {
-    final sheet = _workbook.activeSheet;
-    sheet.undoManager.undoN(n);
+  void _onUndo() {
+    _workbook.activeSheet.controller.undo();
     widget.persistenceService.scheduleSave(_workbook);
     setState(_updateSelectedCellInfo);
   }
 
-  void _redoN(int n) {
-    final sheet = _workbook.activeSheet;
-    sheet.undoManager.redoN(n);
+  void _onRedo() {
+    _workbook.activeSheet.controller.redo();
     widget.persistenceService.scheduleSave(_workbook);
     setState(_updateSelectedCellInfo);
   }
-
-  void _undo() => _undoN(1);
-
-  void _redo() => _redoN(1);
 
   @override
   Widget build(BuildContext context) {
@@ -734,18 +701,6 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
               _toggleUnderline,
           const SingleActivator(LogicalKeyboardKey.keyU, meta: true):
               _toggleUnderline,
-          const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undo,
-          const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undo,
-          const SingleActivator(
-            LogicalKeyboardKey.keyZ,
-            control: true,
-            shift: true,
-          ): _redo,
-          const SingleActivator(
-            LogicalKeyboardKey.keyZ,
-            meta: true,
-            shift: true,
-          ): _redo,
         },
         child: Column(
           children: [
@@ -772,11 +727,11 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
                   setState(() => _borderPenColor = color),
               onBorderLineOptionChanged: (option) =>
                   setState(() => _borderPenLineOption = option),
-              undoDescriptions: sheet.undoManager.undoDescriptions,
-              redoDescriptions: sheet.undoManager.redoDescriptions,
+              canUndo: sheet.undoManager.canUndo,
+              canRedo: sheet.undoManager.canRedo,
               currentValue: _evaluatedCellValue,
-              onUndoN: _undoN,
-              onRedoN: _redoN,
+              onUndo: _onUndo,
+              onRedo: _onRedo,
               recentFonts: _recentFonts,
               onFontUsed: _onFontUsed,
               onToggleBold: _toggleBold,
@@ -817,16 +772,28 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
                     child: Worksheet(
                       key: ValueKey(sheet.name),
                       data: sheet.formulaData,
+                      rawData: sheet.sparseData,
                       controller: sheet.controller,
                       editController: _editController,
                       dateParser: AnyDate(),
+                      clipboardSerializer: _FormulaClipboardSerializer(
+                        rawData: sheet.sparseData,
+                        dateParser: AnyDate(),
+                      ),
                       rowCount: defaultRowCount,
                       columnCount: defaultColumnCount,
                       customColumnWidths: sheet.customColumnWidths,
                       customRowHeights: sheet.customRowHeights,
                       onCellTap: _onCellTap,
-                      onResizeColumn: _onResizeColumn,
-                      onResizeRow: _onResizeRow,
+                      onResizeColumn: (col, width) {
+                        sheet.customColumnWidths[col] = width;
+                        widget.persistenceService.scheduleSave(_workbook);
+                      },
+                      onResizeRow: (row, height) {
+                        sheet.customRowHeights[row] = height;
+                        widget.persistenceService.scheduleSave(_workbook);
+                      },
+                      formulaAutocompleteConfig: _autocompleteConfig,
                     ),
                   ),
                 ),
@@ -906,6 +873,8 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
             Center(
               child: Image.asset(
                 'assets/worksheet.png',
+                width: 64,
+                height: 64,
                 filterQuality: FilterQuality.medium,
               ),
             ),
@@ -1143,5 +1112,41 @@ class _MenuButton extends StatelessWidget {
         minimumSize: Size.zero,
       ),
     );
+  }
+}
+
+/// Clipboard serializer that preserves formulas on copy and paste.
+///
+/// The default [TsvClipboardSerializer] uses `allowFormulas: false` on paste,
+/// which means pasted formulas like `=SUM(A1:A5)` become plain text.
+/// This serializer also reads from [rawData] on copy so that formula cells
+/// are serialized as their raw formula text instead of the evaluated result.
+class _FormulaClipboardSerializer implements ClipboardSerializer {
+  final WorksheetData rawData;
+  final AnyDate? dateParser;
+
+  const _FormulaClipboardSerializer({
+    required this.rawData,
+    this.dateParser,
+  });
+
+  @override
+  String serialize(CellRange range, WorksheetData data) {
+    // Delegate to TSV serializer but read from rawData so formulas are copied
+    // as their raw text (e.g. "=SUM(A1:A5)") instead of evaluated values.
+    return TsvClipboardSerializer(dateParser: dateParser)
+        .serialize(range, rawData);
+  }
+
+  @override
+  List<List<CellValue?>> deserialize(String text) {
+    if (text.isEmpty) return [];
+    final rows = text.split('\n');
+    return rows.map((row) {
+      final columns = row.split('\t');
+      return columns
+          .map((t) => CellValue.parse(t, dateParser: dateParser))
+          .toList();
+    }).toList();
   }
 }

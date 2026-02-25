@@ -140,7 +140,7 @@ class WebPersistenceService implements PersistenceService {
     }
 
     final merges = <String>[];
-    for (final region in sheet.rawData.mergedCells.regions) {
+    for (final region in sheet.formulaData.mergedCells.regions) {
       final r = region.range;
       final start = CellCoordinate(r.startRow, r.startColumn).toNotation();
       final end = CellCoordinate(r.endRow, r.endColumn).toNotation();
@@ -275,7 +275,7 @@ class WebPersistenceService implements PersistenceService {
       if (parts.length == 2) {
         final start = CellCoordinate.fromNotation(parts[0]);
         final end = CellCoordinate.fromNotation(parts[1]);
-        sheet.rawData.mergeCells(
+        sheet.sparseData.mergeCells(
           CellRange(start.row, start.column, end.row, end.column),
         );
       }

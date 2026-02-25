@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/painting.dart';
 import 'package:worksheet/worksheet.dart';
 import 'package:worksheet_formula/worksheet_formula.dart';
 
@@ -8,11 +7,10 @@ import 'worksheet_evaluation_context.dart';
 
 /// A [WorksheetData] wrapper that evaluates formula cells on the fly.
 ///
-/// Wraps an inner [WorksheetData] and intercepts [getCell] to return
-/// computed values for formula cells. Uses [DependencyGraph] for
-/// efficient cache invalidation when cells change.
-class FormulaWorksheetData implements WorksheetData {
-  final WorksheetData _inner;
+/// Extends [DelegatingWorksheetData] so only [getCell] and [setCell]
+/// need overriding; everything else delegates to the inner data source.
+/// Uses [DependencyGraph] for efficient cache invalidation when cells change.
+class FormulaWorksheetData extends DelegatingWorksheetData {
   final FormulaEngine engine;
   final DependencyGraph _dependencies = DependencyGraph();
   final Map<CellCoordinate, CellValue> _cache = {};
@@ -20,9 +18,9 @@ class FormulaWorksheetData implements WorksheetData {
       StreamController<DataChangeEvent>.broadcast();
   late final StreamSubscription<DataChangeEvent> _innerSub;
 
-  FormulaWorksheetData(this._inner, {FormulaEngine? engine})
+  FormulaWorksheetData(super.inner, {FormulaEngine? engine})
       : engine = engine ?? FormulaEngine() {
-    _innerSub = _inner.changes.listen(_onInnerChange);
+    _innerSub = inner.changes.listen(_onInnerChange);
   }
 
   /// Get the dependency graph (for inspection/debugging).
@@ -30,7 +28,7 @@ class FormulaWorksheetData implements WorksheetData {
 
   @override
   CellValue? getCell(CellCoordinate coord) {
-    final raw = _inner.getCell(coord);
+    final raw = inner.getCell(coord);
     if (raw == null || !raw.isFormula) return raw;
 
     // Check cache
@@ -55,7 +53,7 @@ class FormulaWorksheetData implements WorksheetData {
 
     // Evaluate
     final context = WorksheetEvaluationContext(
-      data: _inner,
+      data: inner,
       functions: engine.functions,
       engine: engine,
       currentCell: A1.fromVector(coord.column, coord.row),
@@ -84,9 +82,12 @@ class FormulaWorksheetData implements WorksheetData {
 
   @override
   void setCell(CellCoordinate coord, CellValue? value) {
-    _inner.setCell(coord, value);
+    inner.setCell(coord, value);
     _invalidateCell(coord);
   }
+
+  @override
+  Stream<DataChangeEvent> get changes => _changeController.stream;
 
   void _invalidateCell(CellCoordinate coord) {
     _cache.remove(coord);
@@ -104,8 +105,11 @@ class FormulaWorksheetData implements WorksheetData {
     if (event.cell != null) {
       _invalidateCell(event.cell!);
     } else if (event.range != null) {
+      // Invalidate each cell in the range AND propagate to dependents.
+      // batchUpdate from the Worksheet widget bypasses our setCell override,
+      // so we must handle dependency propagation here.
       for (final coord in event.range!.cells) {
-        _cache.remove(coord);
+        _invalidateCell(coord);
       }
     } else {
       _cache.clear();
@@ -134,7 +138,7 @@ class FormulaWorksheetData implements WorksheetData {
       final refs = engine.getCellReferences(formula);
       for (final ref in refs) {
         final coord = CellCoordinate(ref.row, ref.column);
-        final raw = _inner.getCell(coord);
+        final raw = inner.getCell(coord);
         if (raw != null && raw.isDate) return true;
         // Also check evaluated value for formula cells
         if (raw != null && raw.isFormula) {
@@ -170,105 +174,6 @@ class FormulaWorksheetData implements WorksheetData {
       OmittedValue() => null,
     };
   }
-
-  // --- Delegate everything else to _inner ---
-
-  @override
-  CellStyle? getStyle(CellCoordinate coord) => _inner.getStyle(coord);
-
-  @override
-  void setStyle(CellCoordinate coord, CellStyle? style) =>
-      _inner.setStyle(coord, style);
-
-  @override
-  CellFormat? getFormat(CellCoordinate coord) => _inner.getFormat(coord);
-
-  @override
-  void setFormat(CellCoordinate coord, CellFormat? format) =>
-      _inner.setFormat(coord, format);
-
-  @override
-  void batchUpdate(void Function(WorksheetDataBatch batch) updates) =>
-      _inner.batchUpdate(updates);
-
-  @override
-  Future<void> batchUpdateAsync(
-    Future<void> Function(WorksheetDataBatch batch) updates,
-  ) =>
-      _inner.batchUpdateAsync(updates);
-
-  @override
-  Stream<DataChangeEvent> get changes => _changeController.stream;
-
-  @override
-  int get rowCount => _inner.rowCount;
-
-  @override
-  int get columnCount => _inner.columnCount;
-
-  @override
-  bool hasValue(CellCoordinate coord) => _inner.hasValue(coord);
-
-  @override
-  Iterable<MapEntry<CellCoordinate, CellValue>> getCellsInRange(
-          CellRange range) =>
-      _inner.getCellsInRange(range);
-
-  @override
-  void clearRange(CellRange range) => _inner.clearRange(range);
-
-  @override
-  CellRange? smartFill(
-    CellRange range,
-    CellCoordinate destination, [
-    Cell? Function(CellCoordinate coord, Cell? sourceCell)? valueGenerator,
-  ]) =>
-      _inner.smartFill(range, destination, valueGenerator);
-
-  @override
-  void fillRange(
-    CellCoordinate source,
-    CellRange range, [
-    Cell? Function(CellCoordinate coord, Cell? sourceCell)? valueGenerator,
-  ]) =>
-      _inner.fillRange(source, range, valueGenerator);
-
-  @override
-  MergedCellRegistry get mergedCells => _inner.mergedCells;
-
-  @override
-  void mergeCells(CellRange range) => _inner.mergeCells(range);
-
-  @override
-  void unmergeCells(CellCoordinate cell) => _inner.unmergeCells(cell);
-
-  @override
-  List<TextSpan>? getRichText(CellCoordinate coord) =>
-      _inner.getRichText(coord);
-
-  @override
-  void setRichText(CellCoordinate coord, List<TextSpan>? richText) =>
-      _inner.setRichText(coord, richText);
-
-  @override
-  void moveMerges(CellRange source, CellCoordinate destination) =>
-      _inner.moveMerges(source, destination);
-
-  @override
-  void unmergeCellsInRange(CellRange range) =>
-      _inner.unmergeCellsInRange(range);
-
-  @override
-  void replicateMerges({
-    required CellRange sourceRange,
-    required CellRange targetRange,
-    required bool vertical,
-  }) =>
-      _inner.replicateMerges(
-        sourceRange: sourceRange,
-        targetRange: targetRange,
-        vertical: vertical,
-      );
 
   @override
   void dispose() {

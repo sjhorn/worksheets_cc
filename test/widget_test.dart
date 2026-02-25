@@ -89,8 +89,8 @@ void main() {
     test('creates with default data and controller', () {
       final sheet = SheetModel(name: 'Test');
       expect(sheet.name, 'Test');
-      expect(sheet.rawData.rowCount, defaultRowCount);
-      expect(sheet.rawData.columnCount, defaultColumnCount);
+      expect(sheet.sparseData.rowCount, defaultRowCount);
+      expect(sheet.sparseData.columnCount, defaultColumnCount);
       expect(sheet.customColumnWidths, isEmpty);
       expect(sheet.customRowHeights, isEmpty);
       sheet.dispose();
@@ -100,7 +100,7 @@ void main() {
       final sheet = SheetModel(name: 'Original');
       final copy = sheet.copyWithName('Copy');
       expect(copy.name, 'Copy');
-      expect(identical(copy.rawData, sheet.rawData), true);
+      expect(identical(copy.sparseData, sheet.sparseData), true);
       expect(identical(copy.formulaData, sheet.formulaData), true);
       expect(identical(copy.controller, sheet.controller), true);
       // Don't dispose both since they share data/controller

@@ -17,15 +17,15 @@ class FormattingToolbar extends StatelessWidget {
     required this.onStyleChanged,
     required this.onFormatChanged,
     required this.onClearFormatting,
-    required this.undoDescriptions,
-    required this.redoDescriptions,
+    required this.canUndo,
+    required this.canRedo,
     required this.onBordersChanged,
     required this.borderColor,
     required this.currentLineOption,
     required this.onBorderColorChanged,
     required this.onBorderLineOptionChanged,
-    required this.onUndoN,
-    required this.onRedoN,
+    required this.onUndo,
+    required this.onRedo,
     required this.recentFonts,
     required this.onFontUsed,
     required this.onToggleBold,
@@ -59,10 +59,10 @@ class FormattingToolbar extends StatelessWidget {
   final BorderLineOption currentLineOption;
   final ValueChanged<Color> onBorderColorChanged;
   final ValueChanged<BorderLineOption> onBorderLineOptionChanged;
-  final List<String> undoDescriptions;
-  final List<String> redoDescriptions;
-  final ValueChanged<int> onUndoN;
-  final ValueChanged<int> onRedoN;
+  final bool canUndo;
+  final bool canRedo;
+  final VoidCallback onUndo;
+  final VoidCallback onRedo;
   final List<String> recentFonts;
   final ValueChanged<String> onFontUsed;
   final VoidCallback onToggleBold;
@@ -114,15 +114,33 @@ class FormattingToolbar extends StatelessWidget {
             constraints: BoxConstraints(minWidth: constraints.maxWidth),
             child: Row(
         children: [
-          _UndoRedoComboButton(
-            icon: Icons.undo,
-            descriptions: undoDescriptions,
-            onAction: onUndoN,
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: IconButton(
+              icon: Icon(Icons.undo, size: 16,
+                  color: canUndo ? null : Colors.grey.shade400),
+              padding: EdgeInsets.zero,
+              onPressed: canUndo ? onUndo : null,
+              style: IconButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4)),
+              ),
+            ),
           ),
-          _UndoRedoComboButton(
-            icon: Icons.redo,
-            descriptions: redoDescriptions,
-            onAction: onRedoN,
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: IconButton(
+              icon: Icon(Icons.redo, size: 16,
+                  color: canRedo ? null : Colors.grey.shade400),
+              padding: EdgeInsets.zero,
+              onPressed: canRedo ? onRedo : null,
+              style: IconButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4)),
+              ),
+            ),
           ),
           if (onPaintFormat != null)
             _ToolbarButton(
@@ -326,70 +344,6 @@ class _ToolbarButton extends StatelessWidget {
   }
 }
 
-class _UndoRedoComboButton extends StatelessWidget {
-  const _UndoRedoComboButton({
-    required this.icon,
-    required this.descriptions,
-    required this.onAction,
-  });
-
-  final IconData icon;
-  final List<String> descriptions;
-  final ValueChanged<int> onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = descriptions.isNotEmpty;
-    final iconColor = enabled ? null : Colors.grey.shade400;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 28,
-          height: 28,
-          child: IconButton(
-            icon: Icon(icon, size: 16, color: iconColor),
-            padding: EdgeInsets.zero,
-            onPressed: enabled ? () => onAction(1) : null,
-            style: IconButton.styleFrom(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-        ),
-        SizedBox(
-          width: 16,
-          height: 28,
-          child: PopupMenuButton<int>(
-            enabled: enabled,
-            padding: EdgeInsets.zero,
-            tooltip: '',
-            onSelected: onAction,
-            offset: const Offset(0, 28),
-            itemBuilder: (_) => [
-              for (var i = 0; i < descriptions.length; i++)
-                PopupMenuItem<int>(
-                  value: i + 1,
-                  height: 32,
-                  child: Text(
-                    descriptions[i],
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ),
-            ],
-            child: Icon(
-              Icons.arrow_drop_down,
-              size: 14,
-              color: iconColor,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 class _FormatPopupButton extends StatelessWidget {
   const _FormatPopupButton({

@@ -34,6 +34,12 @@ class _FormulaBarState extends State<FormulaBar> {
   /// Guards against feedback loops when syncing from EditController.
   bool _syncing = false;
 
+  /// True when the user started editing from the formula bar (not from
+  /// the cell overlay). In this mode we keep text locally and only
+  /// touch the [EditController] at commit time to leverage its value
+  /// parsing / format detection.
+  bool _isLocalEdit = false;
+
   EditController get _ec => widget.editController;
 
   @override
@@ -52,8 +58,13 @@ class _FormulaBarState extends State<FormulaBar> {
       widget.editController.addListener(_onEditControllerChanged);
     }
 
+    // If the selected cell changed while in local edit, commit first.
+    if (_isLocalEdit && widget.selectedCell != oldWidget.selectedCell) {
+      _commitLocal();
+    }
+
     // When the selected cell changes and we're not editing, show cell value.
-    if (!_ec.isEditing) {
+    if (!_ec.isEditing && !_isLocalEdit) {
       _showCellValue();
     }
   }
@@ -88,7 +99,7 @@ class _FormulaBarState extends State<FormulaBar> {
   // ---------------------------------------------------------------------------
 
   void _onEditControllerChanged() {
-    if (_syncing) return;
+    if (_syncing || _isLocalEdit) return;
 
     if (_ec.isEditing) {
       // Sync live text from cell overlay → formula bar.
@@ -112,24 +123,23 @@ class _FormulaBarState extends State<FormulaBar> {
   // ---------------------------------------------------------------------------
 
   void _onFocusChange() {
-    if (!_focusNode.hasFocus && _ec.isEditing) {
-      // Lost focus while editing — commit.
-      _commit();
+    if (!_focusNode.hasFocus) {
+      if (_isLocalEdit) {
+        _commitLocal();
+      } else if (_ec.isEditing) {
+        _commit();
+      }
     }
   }
 
   void _onTap() {
     if (_ec.isEditing) return; // Already editing via cell overlay.
+    if (_isLocalEdit) return; // Already in local edit mode.
+    if (widget.selectedCell == null) return;
 
-    final cell = widget.selectedCell;
-    if (cell == null) return;
-
-    // Start an edit so the cell overlay also appears.
-    _ec.startEdit(
-      cell: cell,
-      currentValue: widget.cellValue,
-      trigger: EditTrigger.programmatic,
-    );
+    // Enter local edit mode — don't call startEdit so the
+    // CellEditorOverlay is never created and can't steal focus.
+    _isLocalEdit = true;
   }
 
   // ---------------------------------------------------------------------------
@@ -139,15 +149,15 @@ class _FormulaBarState extends State<FormulaBar> {
   void _onTextChanged(String text) {
     if (_syncing) return;
 
-    // If user types before tapping (shouldn't normally happen), start edit.
+    // Local edit — text stays in our controller, no EditController sync.
+    if (_isLocalEdit) return;
+
+    // If user types before tapping (shouldn't normally happen), start
+    // local edit mode.
     if (!_ec.isEditing) {
-      final cell = widget.selectedCell;
-      if (cell == null) return;
-      _ec.startEdit(
-        cell: cell,
-        currentValue: widget.cellValue,
-        trigger: EditTrigger.programmatic,
-      );
+      if (widget.selectedCell == null) return;
+      _isLocalEdit = true;
+      return;
     }
 
     _syncing = true;
@@ -159,21 +169,50 @@ class _FormulaBarState extends State<FormulaBar> {
   // Commit / cancel
   // ---------------------------------------------------------------------------
 
+  /// Commits a local formula-bar edit by parsing the text directly
+  /// and calling [onCommit]. Does NOT touch the [EditController] to
+  /// avoid confusing the Worksheet widget's internal editing state.
+  void _commitLocal() {
+    final cell = widget.selectedCell;
+    if (cell == null) {
+      _isLocalEdit = false;
+      return;
+    }
+
+    final text = _controller.text.trim();
+    if (text.isEmpty) {
+      widget.onCommit(cell, null);
+    } else {
+      final value = CellValue.parse(text, dateParser: AnyDate()) ??
+          CellValue.text(text);
+      widget.onCommit(cell, value);
+    }
+    _isLocalEdit = false;
+  }
+
   void _commit() {
     if (!_ec.isEditing) return;
     _ec.commitEdit(onCommit: widget.onCommit);
   }
 
   void _cancel() {
-    if (_ec.isEditing) {
+    if (_isLocalEdit) {
+      _isLocalEdit = false;
+      _showCellValue();
+      _focusNode.unfocus();
+    } else if (_ec.isEditing) {
       _ec.cancelEdit();
+      _showCellValue();
+      _focusNode.unfocus();
     }
-    _showCellValue();
-    _focusNode.unfocus();
   }
 
   void _onSubmitted(String text) {
-    _commit();
+    if (_isLocalEdit) {
+      _commitLocal();
+    } else {
+      _commit();
+    }
     _focusNode.unfocus();
   }
 
