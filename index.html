@@ -18,7 +18,7 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="Worksheets.cc - A spreadsheet in your browser">
+  <meta name="description" content="worksheets.cc - spreadsheet in your browser">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -32,8 +32,54 @@
 
   <title>Worksheets.cc</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    body {
+      margin: 0;
+      background-color: #ffffff;
+    }
+
+    #loading-screen {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background-color: #ffffff;
+      z-index: 9999;
+    }
+
+    #loading-screen img {
+      width: 256px;
+      animation: pulse 1.5s ease-in-out infinite; /* optional animation */
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+  </style>
 </head>
 <body>
+  <!-- Loading screen -->
+  <div id="loading-screen">
+    <img src="icons/icon-512.png" alt="worksheets.cc starting..." />
+    <!-- Optional: add a spinner or text below -->
+    <p style="font-family: sans-serif; color: #888; margin-top: 16px;">worksheets.cc starting...</p>
+  </div>
+
+  <script>
+    window.addEventListener('flutter-first-frame', function() {
+      // Hide loading screen once Flutter renders its first frame
+      var loadingScreen = document.getElementById('loading-screen');
+      loadingScreen.style.opacity = '0';
+      loadingScreen.style.transition = 'opacity 0.5s ease';
+      setTimeout(function() {
+        loadingScreen.style.display = 'none';
+      }, 500);
+    });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
