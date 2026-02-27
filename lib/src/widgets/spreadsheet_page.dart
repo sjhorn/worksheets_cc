@@ -710,6 +710,7 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
               cellValue: _selectedCellValue,
               editController: _editController,
               onCommit: _onFormulaBarCommit,
+              autocompleteConfig: _autocompleteConfig,
             ),
             FormattingToolbar(
               currentStyle: _selectedCellStyle,

@@ -11,6 +11,7 @@ class FormulaBar extends StatefulWidget {
     required this.cellValue,
     required this.editController,
     required this.onCommit,
+    this.autocompleteConfig,
   });
 
   final CellCoordinate? selectedCell;
@@ -22,6 +23,9 @@ class FormulaBar extends StatefulWidget {
   /// this callback lets the page perform any additional work (e.g. auto-align).
   final void Function(CellCoordinate cell, CellValue? value,
       {CellFormat? detectedFormat}) onCommit;
+
+  /// When non-null, enables formula autocomplete in the formula bar.
+  final FormulaAutocompleteConfig? autocompleteConfig;
 
   @override
   State<FormulaBar> createState() => _FormulaBarState();
@@ -42,11 +46,20 @@ class _FormulaBarState extends State<FormulaBar> {
 
   EditController get _ec => widget.editController;
 
+  // ---------------------------------------------------------------------------
+  // Autocomplete state
+  // ---------------------------------------------------------------------------
+
+  AutocompleteController? _autocompleteController;
+  final LayerLink _layerLink = LayerLink();
+  OverlayEntry? _overlayEntry;
+
   @override
   void initState() {
     super.initState();
     _focusNode.addListener(_onFocusChange);
     _ec.addListener(_onEditControllerChanged);
+    _initAutocomplete();
   }
 
   @override
@@ -58,9 +71,19 @@ class _FormulaBarState extends State<FormulaBar> {
       widget.editController.addListener(_onEditControllerChanged);
     }
 
+    if (oldWidget.autocompleteConfig != widget.autocompleteConfig) {
+      _disposeAutocomplete();
+      _initAutocomplete();
+    }
+
     // If the selected cell changed while in local edit, commit first.
     if (_isLocalEdit && widget.selectedCell != oldWidget.selectedCell) {
       _commitLocal();
+    }
+
+    // Dismiss autocomplete on cell selection change.
+    if (widget.selectedCell != oldWidget.selectedCell) {
+      _autocompleteController?.dismiss();
     }
 
     // When the selected cell changes and we're not editing, show cell value.
@@ -71,11 +94,86 @@ class _FormulaBarState extends State<FormulaBar> {
 
   @override
   void dispose() {
+    _removeOverlay();
+    _disposeAutocomplete();
     _ec.removeListener(_onEditControllerChanged);
     _focusNode.removeListener(_onFocusChange);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _initAutocomplete() {
+    if (widget.autocompleteConfig == null) return;
+    _autocompleteController = AutocompleteController(
+      config: widget.autocompleteConfig!,
+    );
+    _autocompleteController!.addListener(_onAutocompleteChanged);
+  }
+
+  void _disposeAutocomplete() {
+    _autocompleteController?.removeListener(_onAutocompleteChanged);
+    _autocompleteController?.dispose();
+    _autocompleteController = null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Autocomplete overlay
+  // ---------------------------------------------------------------------------
+
+  void _onAutocompleteChanged() {
+    final ac = _autocompleteController!;
+    if (ac.isVisible) {
+      if (_overlayEntry != null) {
+        _overlayEntry!.markNeedsBuild();
+      } else {
+        _showOverlay();
+      }
+    } else {
+      _removeOverlay();
+    }
+  }
+
+  void _showOverlay() {
+    final ac = _autocompleteController!;
+    _overlayEntry = OverlayEntry(
+      builder: (context) => CompositedTransformFollower(
+        link: _layerLink,
+        targetAnchor: Alignment.bottomLeft,
+        followerAnchor: Alignment.topLeft,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: AutocompleteDropdown(
+            matches: ac.matches,
+            selectedIndex: ac.selectedIndex,
+            prefix: ac.currentToken?.text ?? '',
+            onSelect: _onAutocompleteSelect,
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_overlayEntry!);
+  }
+
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  void _onAutocompleteSelect(FormulaFunction fn) {
+    final ac = _autocompleteController!;
+    final token = ac.currentToken;
+    if (token != null) {
+      AutocompleteController.applyAcceptedFunction(_controller, fn, token);
+      _updateAutocompleteFromController();
+    }
+  }
+
+  void _updateAutocompleteFromController() {
+    _autocompleteController?.onTextChanged(
+      _controller.text,
+      _controller.selection.baseOffset,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -114,6 +212,7 @@ class _FormulaBarState extends State<FormulaBar> {
       }
     } else {
       // Editing ended (commit or cancel) — show committed value.
+      _autocompleteController?.dismiss();
       _showCellValue();
     }
   }
@@ -124,6 +223,7 @@ class _FormulaBarState extends State<FormulaBar> {
 
   void _onFocusChange() {
     if (!_focusNode.hasFocus) {
+      _autocompleteController?.dismiss();
       if (_isLocalEdit) {
         _commitLocal();
       } else if (_ec.isEditing) {
@@ -149,6 +249,12 @@ class _FormulaBarState extends State<FormulaBar> {
   void _onTextChanged(String text) {
     if (_syncing) return;
 
+    // Update autocomplete on every text change.
+    _autocompleteController?.onTextChanged(
+      text,
+      _controller.selection.baseOffset,
+    );
+
     // Local edit — text stays in our controller, no EditController sync.
     if (_isLocalEdit) return;
 
@@ -166,6 +272,42 @@ class _FormulaBarState extends State<FormulaBar> {
   }
 
   // ---------------------------------------------------------------------------
+  // Keyboard handling
+  // ---------------------------------------------------------------------------
+
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    // Let autocomplete controller handle navigation keys first.
+    if (_autocompleteController != null &&
+        _autocompleteController!.isVisible) {
+      final result = _autocompleteController!.handleKeyEvent(
+        event,
+        onAccept: (fn, token) {
+          AutocompleteController.applyAcceptedFunction(
+            _controller, fn, token,
+          );
+          // Sync the inserted text to the edit controller if active.
+          if (!_isLocalEdit && _ec.isEditing) {
+            _syncing = true;
+            _ec.updateText(_controller.text);
+            _syncing = false;
+          }
+          _updateAutocompleteFromController();
+        },
+      );
+      if (result == KeyEventResult.handled) return result;
+    }
+
+    // Fall through: Escape cancels editing.
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape) {
+      _cancel();
+      return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
+  // ---------------------------------------------------------------------------
   // Commit / cancel
   // ---------------------------------------------------------------------------
 
@@ -173,6 +315,7 @@ class _FormulaBarState extends State<FormulaBar> {
   /// and calling [onCommit]. Does NOT touch the [EditController] to
   /// avoid confusing the Worksheet widget's internal editing state.
   void _commitLocal() {
+    _autocompleteController?.dismiss();
     final cell = widget.selectedCell;
     if (cell == null) {
       _isLocalEdit = false;
@@ -191,11 +334,13 @@ class _FormulaBarState extends State<FormulaBar> {
   }
 
   void _commit() {
+    _autocompleteController?.dismiss();
     if (!_ec.isEditing) return;
     _ec.commitEdit(onCommit: widget.onCommit);
   }
 
   void _cancel() {
+    _autocompleteController?.dismiss();
     if (_isLocalEdit) {
       _isLocalEdit = false;
       _showCellValue();
@@ -208,6 +353,7 @@ class _FormulaBarState extends State<FormulaBar> {
   }
 
   void _onSubmitted(String text) {
+    _autocompleteController?.dismiss();
     if (_isLocalEdit) {
       _commitLocal();
     } else {
@@ -247,26 +393,23 @@ class _FormulaBarState extends State<FormulaBar> {
           const Icon(Icons.functions, size: 16, color: Colors.grey),
           const SizedBox(width: 4),
           Expanded(
-            child: KeyboardListener(
-              focusNode: FocusNode(skipTraversal: true),
-              onKeyEvent: (event) {
-                if (event is KeyDownEvent &&
-                    event.logicalKey == LogicalKeyboardKey.escape) {
-                  _cancel();
-                }
-              },
-              child: TextField(
-                controller: _controller,
-                focusNode: _focusNode,
-                style: const TextStyle(fontSize: 12),
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(vertical: 6),
+            child: CompositedTransformTarget(
+              link: _layerLink,
+              child: Focus(
+                onKeyEvent: _handleKeyEvent,
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  style: const TextStyle(fontSize: 12),
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 6),
+                  ),
+                  onTap: _onTap,
+                  onChanged: _onTextChanged,
+                  onSubmitted: _onSubmitted,
                 ),
-                onTap: _onTap,
-                onChanged: _onTextChanged,
-                onSubmitted: _onSubmitted,
               ),
             ),
           ),

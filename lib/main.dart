@@ -20,7 +20,7 @@ class _WorksheetsAppState extends State<WorksheetsApp> {
   late final WorkbookModel _workbook;
   late final WebPersistenceService _persistenceService;
   bool _isLoading = true;
-  bool _isDarkMode = false;
+  ThemeMode _themeMode = ThemeMode.system;
 
   @override
   void initState() {
@@ -58,18 +58,25 @@ class _WorksheetsAppState extends State<WorksheetsApp> {
         ),
         useMaterial3: true,
       ),
-      themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      home: _isLoading
-          ? const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            )
-          : SpreadsheetPage(
-              workbook: _workbook,
-              persistenceService: _persistenceService,
-              isDarkMode: _isDarkMode,
-              onToggleDarkMode: () =>
-                  setState(() => _isDarkMode = !_isDarkMode),
-            ),
+      themeMode: _themeMode,
+      home: Builder(builder: (context) {
+        final isDark = _themeMode == ThemeMode.system
+            ? MediaQuery.platformBrightnessOf(context) == Brightness.dark
+            : _themeMode == ThemeMode.dark;
+        return _isLoading
+            ? const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              )
+            : SpreadsheetPage(
+                workbook: _workbook,
+                persistenceService: _persistenceService,
+                isDarkMode: isDark,
+                onToggleDarkMode: () => setState(() {
+                  _themeMode =
+                      isDark ? ThemeMode.light : ThemeMode.dark;
+                }),
+              );
+      }),
     );
   }
 }
