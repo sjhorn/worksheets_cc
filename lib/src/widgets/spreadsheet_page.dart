@@ -1119,13 +1119,13 @@ class _SelectionStats extends StatelessWidget {
   List<double> _collectNumericValues() {
     // Only compute stats when a multi-cell range is selected
     if (selectedRange == null) return [];
-    final cells = selectedRange!.cells.toList();
-    if (cells.length <= 1) return [];
+    if (selectedRange!.cellCount <= 1) return [];
 
+    // Use getCellsInRange to iterate only populated cells (not all cells
+    // in the range, which would be billions for select-all).
     final values = <double>[];
-    for (final coord in cells) {
-      final cv = formulaData.getCell(coord);
-      if (cv == null) continue;
+    for (final entry in formulaData.getCellsInRange(selectedRange!)) {
+      final cv = entry.value;
       if (cv.isNumber) {
         values.add(cv.asDouble);
       } else if (cv.isDate) {
