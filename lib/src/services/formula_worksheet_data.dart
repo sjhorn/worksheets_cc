@@ -81,6 +81,23 @@ class FormulaWorksheetData extends DelegatingWorksheetData {
   }
 
   @override
+  Iterable<MapEntry<CellCoordinate, CellValue>> getCellsInRange(
+    CellRange range,
+  ) sync* {
+    for (final entry in inner.getCellsInRange(range)) {
+      final raw = entry.value;
+      if (raw.isFormula) {
+        final evaluated = getCell(entry.key);
+        if (evaluated != null) {
+          yield MapEntry(entry.key, evaluated);
+        }
+      } else {
+        yield entry;
+      }
+    }
+  }
+
+  @override
   void setCell(CellCoordinate coord, CellValue? value) {
     inner.setCell(coord, value);
     _invalidateCell(coord);

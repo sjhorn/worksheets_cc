@@ -228,8 +228,42 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
 
   void _onEditControllerChanged() {
     if (!_editController.isEditing) {
-      // Editing ended — refresh cell info.
+      // Editing ended — fix up rich text for formula cells.
+      // The cell editor stores rich text with the raw formula text
+      // (e.g. "=C3*3"). Replace it with the evaluated display value.
+      _fixFormulaRichText();
       setState(_updateSelectedCellInfo);
+    }
+  }
+
+  /// After a formula cell's edit is committed, convert any text-bearing
+  /// rich text spans to a cell-level style (empty-text TextSpan).
+  /// Worksheet 3.8.0 handles this in CellEditorOverlay._extractRichText,
+  /// but we keep this as a safety net for edge cases.
+  void _fixFormulaRichText() {
+    final cell = _selectedCell;
+    if (cell == null) return;
+
+    final sheet = _workbook.activeSheet;
+    final raw = sheet.sparseData.getCell(cell);
+    if (raw == null || !raw.isFormula) return;
+
+    final richText = sheet.formulaData.getRichText(cell);
+    if (richText == null || richText.isEmpty) return;
+
+    // Already a cell-level style — nothing to fix.
+    if (richText.length == 1 &&
+        (richText.first.text == null || richText.first.text!.isEmpty)) {
+      return;
+    }
+
+    // Convert text-bearing spans to cell-level style.
+    final style = richText.first.style;
+    if (style == null) {
+      // No style to preserve — remove rich text entirely.
+      sheet.formulaData.setRichText(cell, null);
+    } else {
+      sheet.formulaData.setRichText(cell, [TextSpan(style: style)]);
     }
   }
 
@@ -286,11 +320,24 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
     TextStyle Function(TextStyle existing) transform,
   ) {
     final sheet = _workbook.activeSheet;
+    final raw = sheet.sparseData.getCell(coord);
+    final isFormula = raw != null && raw.isFormula;
+
+    if (isFormula) {
+      // For formula cells, use cell-level style (empty-text TextSpan).
+      // The tile painter applies this style to the evaluated display value.
+      final existing = _getCellLevelStyle(sheet.formulaData.getRichText(coord));
+      sheet.formulaData.setRichText(
+        coord,
+        [TextSpan(style: transform(existing))],
+      );
+      return;
+    }
+
     var richText = sheet.formulaData.getRichText(coord);
     if (richText == null || richText.isEmpty) {
-      // Create a single span from the cell value text
-      final value = sheet.sparseData.getCell(coord);
-      final text = value?.rawValue.toString() ?? '';
+      final value = sheet.formulaData.getCell(coord);
+      final text = value?.displayValue ?? '';
       richText = [TextSpan(text: text)];
     }
     final updated = richText.map((span) {
@@ -298,6 +345,18 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
       return TextSpan(text: span.text, style: transform(existing));
     }).toList();
     sheet.formulaData.setRichText(coord, updated);
+  }
+
+  /// Extracts the cell-level style from rich text spans.
+  /// Cell-level style is a single TextSpan with empty/null text and a style.
+  TextStyle _getCellLevelStyle(List<TextSpan>? richText) {
+    if (richText == null || richText.isEmpty) return const TextStyle();
+    if (richText.length == 1 &&
+        (richText.first.text == null || richText.first.text!.isEmpty)) {
+      return richText.first.style ?? const TextStyle();
+    }
+    // Legacy: spans with text — take the first span's style.
+    return richText.first.style ?? const TextStyle();
   }
 
   /// Applies a text style change to the selected cell(s) or range.
@@ -462,23 +521,31 @@ class _SpreadsheetPageState extends State<SpreadsheetPage> {
           batch.setFormat(coord, source.format!);
         }
         if (source.textStyle != null) {
-          // Apply source text style to target, preserving text content
-          var richText = sheet.formulaData.getRichText(coord);
-          if (richText == null || richText.isEmpty) {
-            final value = sheet.sparseData.getCell(coord);
-            final text = value?.rawValue.toString() ?? '';
-            if (text.isNotEmpty) {
-              richText = [TextSpan(text: text)];
+          final rawCell = sheet.sparseData.getCell(coord);
+          final isFormula = rawCell != null && rawCell.isFormula;
+
+          if (isFormula) {
+            // Cell-level style for formula cells.
+            batch.setRichText(coord, [TextSpan(style: source.textStyle)]);
+          } else {
+            // Apply source text style to target, preserving text content.
+            var richText = sheet.formulaData.getRichText(coord);
+            if (richText == null || richText.isEmpty) {
+              final value = sheet.formulaData.getCell(coord);
+              final text = value?.displayValue ?? '';
+              if (text.isNotEmpty) {
+                richText = [TextSpan(text: text)];
+              }
             }
-          }
-          if (richText != null && richText.isNotEmpty) {
-            final updated = richText
-                .map((span) => TextSpan(
-                      text: span.text,
-                      style: source.textStyle,
-                    ))
-                .toList();
-            batch.setRichText(coord, updated);
+            if (richText != null && richText.isNotEmpty) {
+              final updated = richText
+                  .map((span) => TextSpan(
+                        text: span.text,
+                        style: source.textStyle,
+                      ))
+                  .toList();
+              batch.setRichText(coord, updated);
+            }
           }
         }
       }
