@@ -118,15 +118,25 @@ class FormulaWorksheetData extends DelegatingWorksheetData {
     }
   }
 
+  /// Threshold above which we clear the entire cache instead of
+  /// invalidating individual cells (avoids iterating billions of cells).
+  static const _bulkInvalidationThreshold = 10000;
+
   void _onInnerChange(DataChangeEvent event) {
     if (event.cell != null) {
       _invalidateCell(event.cell!);
     } else if (event.range != null) {
-      // Invalidate each cell in the range AND propagate to dependents.
-      // batchUpdate from the Worksheet widget bypasses our setCell override,
-      // so we must handle dependency propagation here.
-      for (final coord in event.range!.cells) {
-        _invalidateCell(coord);
+      // For large ranges (e.g. select-all + delete), clear everything
+      // rather than iterating billions of cells.
+      if (event.range!.cellCount > _bulkInvalidationThreshold) {
+        _cache.clear();
+      } else {
+        // Invalidate each cell in the range AND propagate to dependents.
+        // batchUpdate from the Worksheet widget bypasses our setCell override,
+        // so we must handle dependency propagation here.
+        for (final coord in event.range!.cells) {
+          _invalidateCell(coord);
+        }
       }
     } else {
       _cache.clear();
